@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
+
+  /*
+   * Tailwind's slate-700…950 are near-black, which flattens borders and grid lines against the page.
+   * Every dark surface, border and hover in the app is a slate-700…950 utility, so lifting them here
+   * lightens the whole theme consistently.
+   */
+  --color-slate-950: #1b2333; /* page, chart background */
+  --color-slate-900: #232d3f; /* panels, toolbars, WBS rows */
+  --color-slate-800: #303c52; /* borders, hover, grid lines */
+  --color-slate-700: #44536e; /* stronger borders, header rules */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  @apply bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
