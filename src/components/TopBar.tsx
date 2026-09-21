@@ -1,6 +1,8 @@
 import { useRef } from "react";
 import { fmtBytes } from "../lib/format";
 import type { Project } from "../lib/xer/model";
+import type { Mode, PaletteId } from "../lib/themes";
+import { ThemeMenu } from "./ThemeMenu";
 import { buttonClass, inputClass } from "./ui";
 
 export type Tab = "overview" | "schedule" | "tables";
@@ -22,8 +24,10 @@ interface Props {
   onClose: () => void;
   /** Set when the file couldn't be remembered for the next visit. */
   storageNotice: string | null;
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
+  palette: PaletteId;
+  mode: Mode;
+  onPalette: (id: PaletteId) => void;
+  onMode: (mode: Mode) => void;
 }
 
 export function TopBar(p: Props) {
@@ -39,9 +43,9 @@ export function TopBar(p: Props) {
             type="button"
             onClick={() => p.onTab(t.id)}
             aria-current={p.tab === t.id ? "page" : undefined}
-            className={`relative px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 ${
+            className={`relative px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/40 ${
               p.tab === t.id
-                ? "text-blue-600 dark:text-blue-400 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-blue-600 dark:after:bg-blue-400"
+                ? "text-accent-600 dark:text-accent-400 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-accent-600 dark:after:bg-accent-400"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
             }`}
           >
@@ -84,15 +88,7 @@ export function TopBar(p: Props) {
         <button type="button" className={buttonClass} onClick={p.onClose} title="Close this file and forget it in this browser">
           Close
         </button>
-        <button
-          type="button"
-          className={`${buttonClass} w-8 px-0`}
-          onClick={p.onToggleTheme}
-          aria-label={p.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          title={p.theme === "dark" ? "Light theme" : "Dark theme"}
-        >
-          {p.theme === "dark" ? "☀" : "☾"}
-        </button>
+        <ThemeMenu palette={p.palette} mode={p.mode} onPalette={p.onPalette} onMode={p.onMode} />
         <input
           ref={input}
           type="file"

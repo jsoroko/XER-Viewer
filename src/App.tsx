@@ -10,7 +10,7 @@ import { useXerFile } from "./state/useXerFile";
 
 export function App() {
   const { state, restoring, storageNotice, loadFile, loadSample, reset } = useXerFile();
-  const { theme, toggle } = useTheme();
+  const theme = useTheme();
   const dragging = useFileDrop(loadFile);
 
   return (
@@ -23,7 +23,6 @@ export function App() {
           onClose={reset}
           storageNotice={storageNotice}
           theme={theme}
-          onToggleTheme={toggle}
         />
       ) : (
         <Welcome
@@ -34,8 +33,8 @@ export function App() {
         />
       )}
       {dragging && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-blue-600/10 backdrop-blur-[1px]">
-          <div className="rounded-2xl border-2 border-dashed border-blue-500 bg-white px-8 py-6 text-lg font-medium shadow-lg dark:bg-slate-900">
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-accent-600/10 backdrop-blur-[1px]">
+          <div className="rounded-2xl border-2 border-dashed border-accent-500 bg-white px-8 py-6 text-lg font-medium shadow-lg dark:bg-slate-900">
             Drop to open
           </div>
         </div>
@@ -50,14 +49,12 @@ function Viewer({
   onClose,
   storageNotice,
   theme,
-  onToggleTheme,
 }: {
   state: Extract<ReturnType<typeof useXerFile>["state"], { status: "ready" }>;
   onOpen: (file: File) => void;
   onClose: () => void;
   storageNotice: string | null;
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
+  theme: ReturnType<typeof useTheme>;
 }) {
   const { xer } = state;
   const projects = useMemo(() => listProjects(xer), [xer]);
@@ -96,8 +93,10 @@ function Viewer({
         onOpen={onOpen}
         onClose={onClose}
         storageNotice={storageNotice}
-        theme={theme}
-        onToggleTheme={onToggleTheme}
+        palette={theme.palette}
+        mode={theme.mode}
+        onPalette={theme.setPalette}
+        onMode={theme.setMode}
       />
       <main className="min-h-0 flex-1">
         {/* All views stay mounted so scroll position and filters survive tab switches. */}
@@ -127,7 +126,7 @@ function NoProject({ onOpenTable }: { onOpenTable: (name: string) => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-slate-600 dark:text-slate-400">
       <p>This file has no PROJECT table, so there is no schedule to draw.</p>
-      <button type="button" className="text-blue-600 underline dark:text-blue-400" onClick={() => onOpenTable("")}>
+      <button type="button" className="text-accent-600 underline dark:text-accent-400" onClick={() => onOpenTable("")}>
         Browse the raw tables instead
       </button>
     </div>

@@ -106,8 +106,15 @@ export interface Assignment {
 }
 
 export interface ActivityCodeValue {
+  /** actv_code_id */
+  id: string;
+  /** actv_code_type_id */
+  typeId: string;
+  /** actv_code_type */
   typeName: string;
+  /** short_name */
   code: string;
+  /** actv_code_name */
   description: string;
 }
 
@@ -533,6 +540,8 @@ export function buildSchedule(xer: XerFile, projectId: string): Schedule {
     const value = codeValues.get(ta.get(r, "actv_code_id"));
     if (!value) continue;
     push(codes, ta.get(r, "task_id"), {
+      id: ta.get(r, "actv_code_id"),
+      typeId: value.typeId,
       typeName: codeTypes.get(value.typeId) ?? `Code type ${value.typeId}`,
       code: value.code,
       description: value.description,
@@ -603,6 +612,31 @@ export function buildSchedule(xer: XerFile, projectId: string): Schedule {
     },
     range: rangeStart !== null && rangeFinish !== null ? { start: rangeStart, finish: rangeFinish } : null,
   };
+}
+
+const branchCache = new WeakMap<Schedule, Map<string, WbsNode[]>>();
+
+/**
+ * The WBS group an activity sits in plus every group above it, nearest first. The project's own root node is left
+ * out: it carries the project's name, so matching it would make everything match. Cached per schedule.
+ */
+export function wbsBranch(schedule: Schedule, wbsId: string): WbsNode[] {
+  let cache = branchCache.get(schedule);
+  if (!cache) branchCache.set(schedule, (cache = new Map()));
+  let branch = cache.get(wbsId);
+  if (!branch) {
+    branch = [];
+    // `seen` only guards against a corrupt file whose parents loop back on themselves.
+    const seen = new Set<string>();
+    let n = schedule.wbs.get(wbsId);
+    while (n && !seen.has(n.id)) {
+      seen.add(n.id);
+      if (!n.isProjectRoot) branch.push(n);
+      n = n.parentId ? schedule.wbs.get(n.parentId) : undefined;
+    }
+    cache.set(wbsId, branch);
+  }
+  return branch;
 }
 
 export function wbsPath(schedule: Schedule, wbsId: string): string[] {

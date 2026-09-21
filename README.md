@@ -11,17 +11,40 @@ the browser and never leaves your machine, so there is no backend.
   next critical activities, file metadata and a table inventory.
 - **Schedule** – WBS-grouped activity table with a synchronized Gantt chart: actual/remaining split at the data
   date, critical path in red, milestones, level-of-effort bars, WBS summary bars, zoom/fit, virtualized rows
-  (tested with 50,000 activities). Search, status/critical/milestone filters, keyboard navigation (↑/↓), and a
-  details panel with General, Relationships (click to jump), Resources and Activity Codes.
+  (tested with 50,000 activities). Search (task code, task name, and the name or code of any WBS group above a
+  task, so "WP23" finds everything inside a WP23 group; the project's top row is ignored), status/critical/milestone
+  filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
   - **Dependency lines** – select an activity to draw its predecessors (amber) and successors (violet) with
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
-  - **Date range filter** – From/To (either can be left open) with three modes: active in range, starting in
-    range, or finishing in range. The range is shaded on the chart and scrolled into view.
+  - **Date range filter** – the **Dates** button (it shows the current range) opens From/To (either can be left open)
+    with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
+    scrolled into view.
   - **Non-working time** – weekends and holidays from the project's default calendar are shaded when zoomed in.
+  - **Filter builder** – the **Filters** button opens a panel where you combine any number of conditions
+    (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
+    they read: **Activity codes** (Activity ID, Activity Code, Activity Name, Activity Type ID, Activity Type Name),
+    **Task** (Task ID, Task Code, Task Name) and **WBS** (WBS ID, WBS Code, WBS Name; these match an activity's own
+    group *and every group above it*, so a parent group finds everything inside it). Operators: equals, does not
+    equal, contains, does not contain, starts with, ends with, is empty, is not empty (case-insensitive). An activity
+    can carry several codes (and sits under several WBS groups), so for those fields a positive operator passes if *any* code matches, and
+    "does not equal / contain" passes only if *none* does. Each condition is checked on its own. Conditions still
+    missing a value are ignored until you fill them in, and the builder combines with the search box, the status /
+    critical / milestone dropdown and the date range, which cover status and dates.
+  - **Print to PDF** – the **PDF** button makes an A3 landscape sheet of exactly what is on screen: the same rows
+    (so the search, status, date-range and filter-builder results, and any collapsed groups), the Gantt bars fitted
+    to the printed activities, and a header line saying which filters are applied. It is built in the browser and
+    downloaded as `<project>_<date>.pdf`; nothing is uploaded. Long schedules run over as many pages as needed
+    (you are asked to confirm above 100 pages). Characters outside the PDF's built-in fonts (e.g. Chinese or
+    Cyrillic) print as `?`, and dependency lines and non-working shading are not drawn. The PDF library is loaded
+    only when you press the button, as its own chunk, so it does not slow the first page load.
 - **Calendars** – the Overview lists the calendars the project uses (work week, hours/day, holidays, activity
   count); activity details show the calendar's work week and the number of working days the activity spans.
 - **Tables** – browse every raw table in the file with search, column sorting and CSV export.
-- Multi-project files (project picker), drag-and-drop anywhere, light/dark theme, UTF-8 and Windows-1252 files.
+- **Themes** – the palette button in the top bar opens **Appearance**: choose **Light** or **Dark**, and one of five
+  colour themes (Clean, Graphite, Midnight, Sand, Sage). Both choices are remembered in this browser; with nothing
+  saved the app follows your system's light / dark setting. Status colours (complete, critical, actual and remaining
+  bars) are the same in every theme so they always mean the same thing. The PDF is always printed on white.
+- Multi-project files (project picker), drag-and-drop anywhere, UTF-8 and Windows-1252 files.
 - **Remembers your last file** – reopened automatically on your next visit. It's stored in this browser only
   (IndexedDB, so large files are fine); **Close** forgets it. The bundled sample is never remembered. If the file
   can't be saved (e.g. storage is full) the top bar says so and the old remembered file is dropped.
@@ -51,7 +74,10 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/xer/model.ts` | Builds a typed schedule: WBS tree, activities, logic, resources, codes, stats |
 | `src/lib/xer/calendar.ts` | Parses P6 `clndr_data` work patterns; working days, non-working runs, summaries |
 | `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale, windowing |
+| `src/lib/advancedFilter.ts` | Filter-builder fields, operators and evaluation |
 | `src/lib/links.ts` | Orthogonal routing for the dependency lines |
+| `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
+| `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file; load / restore / close flow |
 | `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TablesView |
 | `scripts/generate-sample.ts` | Regenerates `src/sample/sample.xer` (`bun run sample`) |

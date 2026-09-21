@@ -28,16 +28,16 @@ export function Welcome({ loading, error, onFile, onSample }: Props) {
             type="button"
             disabled={busy}
             onClick={() => input.current?.click()}
-            className="group flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-6 py-14 text-center transition-colors hover:border-blue-500 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-progress dark:border-slate-700 dark:bg-slate-900 dark:hover:border-blue-500 dark:hover:bg-blue-950/20"
+            className="group flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-6 py-14 text-center transition-colors hover:border-accent-500 hover:bg-accent-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 disabled:cursor-progress dark:border-slate-700 dark:bg-slate-900 dark:hover:border-accent-500 dark:hover:bg-accent-950/20"
           >
             {busy ? (
               <>
-                <span className="size-8 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500" />
+                <span className="size-8 animate-spin rounded-full border-2 border-slate-300 border-t-accent-500" />
                 <span className="font-medium">{loading === "restoring" ? "Reopening your last file…" : "Parsing file…"}</span>
               </>
             ) : (
               <>
-                <svg viewBox="0 0 24 24" className="size-9 text-slate-400 group-hover:text-blue-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg viewBox="0 0 24 24" className="size-9 text-slate-400 group-hover:text-accent-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 16V4m0 0-4 4m4-4 4 4" />
                   <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
                 </svg>

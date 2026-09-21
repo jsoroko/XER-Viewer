@@ -1,7 +1,20 @@
-import { isMilestone, type Activity, type ActivityStatus, type WbsNode } from "./xer/model";
+import { isMilestone, wbsBranch, type Activity, type ActivityStatus, type Schedule, type WbsNode } from "./xer/model";
+import { fmtDate } from "./format";
 import { parseDate } from "./xer/values";
 
 export type ActivityFilter = "all" | "critical" | ActivityStatus | "milestones";
+
+/** The choices in the "All activities" dropdown, in order. */
+export const ACTIVITY_FILTERS: Array<{ id: ActivityFilter; label: string }> = [
+  { id: "all", label: "All activities" },
+  { id: "critical", label: "Critical" },
+  { id: "not-started", label: "Not started" },
+  { id: "in-progress", label: "In progress" },
+  { id: "completed", label: "Completed" },
+  { id: "milestones", label: "Milestones" },
+];
+
+export const ACTIVITY_FILTER_LABEL = Object.fromEntries(ACTIVITY_FILTERS.map((f) => [f.id, f.label])) as Record<ActivityFilter, string>;
 
 export interface WbsRow {
   kind: "wbs";
@@ -27,6 +40,12 @@ export type Row = WbsRow | TaskRow;
  */
 export type DateMode = "active" | "starts" | "finishes";
 
+export const DATE_MODE_LABEL: Record<DateMode, string> = {
+  active: "Active in range",
+  starts: "Starting in range",
+  finishes: "Finishing in range",
+};
+
 /** Inclusive range in epoch ms; a null bound is open-ended. */
 export interface DateRange {
   from: number | null;
@@ -51,6 +70,16 @@ export function toDateRange(from: string, to: string, mode: DateMode): DateRange
   return range.from !== null && range.to !== null && range.from > range.to ? "invalid" : range;
 }
 
+/** Short wording for a date range, for the button that opens the date filter. */
+export function describeDateRange(from: string, to: string): string {
+  const f = from ? parseDate(from) : null;
+  const t = to ? parseDate(to) : null;
+  if (f !== null && t !== null) return `${fmtDate(f)} – ${fmtDate(t)}`;
+  if (f !== null) return `From ${fmtDate(f)}`;
+  if (t !== null) return `Until ${fmtDate(t)}`;
+  return "Any dates";
+}
+
 export function matchesDateRange(a: Activity, r: DateRange): boolean {
   const { start, finish } = a;
   if (start === null || finish === null) return false; // undated activities can't be placed in a range
@@ -65,17 +94,38 @@ export function makePredicate(
   filter: ActivityFilter,
   query: string,
   range: DateRange | null = null,
+  /** An extra test that must also pass, e.g. the user-built conditions. */
+  extra: ((a: Activity) => boolean) | null = null,
+  /**
+   * When given, the search text also matches the names and codes of the WBS groups an activity sits under (its
+   * own group and every parent group, not the project's root), so "WP23" finds everything inside a WP23 group.
+   */
+  schedule: Schedule | null = null,
 ): ((a: Activity) => boolean) | null {
   const q = query.trim().toLowerCase();
-  if (filter === "all" && !q && !range) return null;
+  if (filter === "all" && !q && !range && !extra) return null;
+  const branchText = new Map<string, string>();
+  const inBranch = (a: Activity) => {
+    if (!schedule) return false;
+    let text = branchText.get(a.wbsId);
+    if (text === undefined) {
+      text = wbsBranch(schedule, a.wbsId)
+        .map((n) => `${n.name}\n${n.code}`)
+        .join("\n")
+        .toLowerCase();
+      branchText.set(a.wbsId, text);
+    }
+    return text.includes(q);
+  };
   return (a) => {
+    if (extra && !extra(a)) return false;
     if (filter === "critical" && !a.critical) return false;
     if (filter === "milestones" && !isMilestone(a)) return false;
     if ((filter === "not-started" || filter === "in-progress" || filter === "completed") && a.status !== filter) {
       return false;
     }
     if (range && !matchesDateRange(a, range)) return false;
-    return !q || a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q);
+    return !q || a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || inBranch(a);
   };
 }
 

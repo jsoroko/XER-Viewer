@@ -217,9 +217,9 @@ export function ActivityDetails({ schedule, activity: a, onSelect, onClose }: Pr
               type="button"
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
-              className={`whitespace-nowrap px-3 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 ${
+              className={`whitespace-nowrap px-3 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/40 ${
                 tab === t.id
-                  ? "border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+                  ? "border-b-2 border-accent-600 text-accent-600 dark:border-accent-400 dark:text-accent-400"
                   : "border-b-2 border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
               }`}
             >
@@ -231,7 +231,7 @@ export function ActivityDetails({ schedule, activity: a, onSelect, onClose }: Pr
           type="button"
           onClick={onClose}
           aria-label="Close details"
-          className="ml-2 rounded px-2 py-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:hover:bg-slate-800"
+          className="ml-2 rounded px-2 py-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-800"
         >
           ✕
         </button>

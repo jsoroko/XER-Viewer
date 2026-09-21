@@ -1,30 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { applyTheme, loadTheme, saveTheme, type Mode, type PaletteId } from "../lib/themes";
 
-type Theme = "light" | "dark";
-const KEY = "xerview-theme";
-
-function initialTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(KEY);
-    if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    // storage unavailable — fall through to the system preference
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
+/** The chosen palette and light / dark mode. Both are applied to the page and remembered in this browser. */
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [choice, setChoice] = useState(loadTheme);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    try {
-      localStorage.setItem(KEY, theme);
-    } catch {
-      // ignore
-    }
-  }, [theme]);
+    applyTheme(document.documentElement, choice.palette, choice.mode);
+    saveTheme(choice);
+  }, [choice]);
 
-  const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
-  return { theme, toggle };
+  return {
+    palette: choice.palette,
+    mode: choice.mode,
+    setPalette: (palette: PaletteId) => setChoice((c) => ({ ...c, palette })),
+    setMode: (mode: Mode) => setChoice((c) => ({ ...c, mode })),
+  };
 }

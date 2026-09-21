@@ -5,6 +5,18 @@
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-accent-50: #eff6ff;
+  --color-accent-100: #dbeafe;
+  --color-accent-200: #bfdbfe;
+  --color-accent-300: #93c5fd;
+  --color-accent-400: #60a5fa;
+  --color-accent-500: #3b82f6;
+  --color-accent-600: #2563eb;
+  --color-accent-700: #1d4ed8;
+  --color-accent-800: #1e40af;
+  --color-accent-900: #1e3a8a;
+  --color-accent-950: #172554;
 }
 
 :root {
@@ -12,17 +24,13 @@
 }
 :root.dark {
   color-scheme: dark;
-
-  /*
-   * Tailwind's slate-700…950 are near-black, which flattens borders and grid lines against the page.
-   * Every dark surface, border and hover in the app is a slate-700…950 utility, so lifting them here
-   * lightens the whole theme consistently.
-   */
-  --color-slate-950: #1b2333; /* page, chart background */
-  --color-slate-900: #232d3f; /* panels, toolbars, WBS rows */
-  --color-slate-800: #303c52; /* borders, hover, grid lines */
-  --color-slate-700: #44536e; /* stronger borders, header rules */
 }
+
+/*
+ * The neutral (slate-*), white and accent-* colours are set on <html> at run time from src/lib/themes.ts, so the
+ * palette and light / dark mode can be chosen in the app. The values in @theme above are only what shows for the
+ * moment before that runs.
+ */
 
 html,
 body,

@@ -210,7 +210,7 @@ export function Overview({ xer, schedule, parseMs, onOpenActivity, onOpenTable }
                       <td className="px-4 py-2">
                         {c.name}
                         {c.id === schedule.defaultCalendar?.id && (
-                          <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          <span className="ml-2 rounded bg-accent-50 px-1.5 py-0.5 text-[10px] font-medium text-accent-700 dark:bg-accent-950 dark:text-accent-300">
                             default
                           </span>
                         )}

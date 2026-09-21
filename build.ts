@@ -13,11 +13,18 @@ const result = await Bun.build({
   plugins: [tailwind],
   minify: true,
   target: "browser",
+  // Lets `import("...")` become its own file, so the PDF library is only downloaded when someone makes a PDF.
+  splitting: true,
   sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
 });
+
+if (!result.success) {
+  for (const log of result.logs) console.error(log);
+  process.exit(1);
+}
 
 for (const output of result.outputs) {
   console.log(` ${path.relative(process.cwd(), output.path)}  ${(output.size / 1024).toFixed(1)} KB`);

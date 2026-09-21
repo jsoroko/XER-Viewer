@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSchedule, listProjects } from "./model";
+import { buildSchedule, listProjects, wbsBranch } from "./model";
 import { decodeXer, parseXer, reader, XerParseError } from "./parse";
 import { parseDate } from "./values";
 
@@ -150,5 +150,39 @@ describe("multi-project files", () => {
     expect(b.predecessors.get("200")![0]!.predTaskId).toBe("100");
     expect(b.activityById.get("100")!.code).toBe("A1");
     expect(b.wbs.get("__orphans__")!.activities.map((a) => a.code)).toEqual(["B2"]);
+  });
+});
+
+describe("wbsBranch", () => {
+  const xer = parseXer(sampleText);
+  const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const named = (name: string) => [...schedule.wbs.values()].find((n) => n.name === name)!;
+
+  test("is the activity's group and each group above it, nearest first, without the project root", () => {
+    const foundations = named("Foundations");
+    expect(wbsBranch(schedule, foundations.id).map((n) => n.name)).toEqual(["Foundations", "Structure"]);
+    const design = named("Design & Engineering");
+    expect(wbsBranch(schedule, design.id).map((n) => n.name)).toEqual(["Design & Engineering", "Pre-Construction"]);
+    expect(wbsBranch(schedule, schedule.roots[0]!.id)).toEqual([]); // the root itself has no branch
+  });
+
+  test("an unknown group gives an empty branch, and the result is cached", () => {
+    expect(wbsBranch(schedule, "does-not-exist")).toEqual([]);
+    const id = named("Foundations").id;
+    expect(wbsBranch(schedule, id)).toBe(wbsBranch(schedule, id));
+  });
+
+  test("a corrupt file whose groups are each other's parent doesn't loop forever", () => {
+    const loop = parseXer(
+      mini(
+        [
+          "%T\tPROJECT\r\n%F\tproj_id\tproj_short_name\r\n%R\t1\tA",
+          "%T\tPROJWBS\r\n%F\twbs_id\tproj_id\tproj_node_flag\twbs_name\tparent_wbs_id\tseq_num\r\n%R\t10\t1\tN\tOne\t11\t0\r\n%R\t11\t1\tN\tTwo\t10\t0",
+          "%T\tTASK\r\n%F\ttask_id\tproj_id\twbs_id\ttask_code\ttask_name\r\n%R\t100\t1\t10\tA1\tX",
+        ].join("\r\n"),
+      ),
+    );
+    const s = buildSchedule(loop, "1");
+    expect(wbsBranch(s, "10").map((n) => n.name)).toEqual(["One", "Two"]);
   });
 });

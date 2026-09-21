@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildRows, endOfDay, makePredicate, matchesDateRange, toDateRange } from "./scheduleRows";
+import { buildRows, describeDateRange, endOfDay, makePredicate, matchesDateRange, toDateRange } from "./scheduleRows";
 import { buildSchedule, listProjects, type Activity } from "./xer/model";
 import { parseXer } from "./xer/parse";
 
@@ -144,5 +144,65 @@ describe("collapsing groups while a filter is active", () => {
     const rows = buildRows(schedule.roots, new Set([envelope.id]), null);
     expect(rows.some((r) => r.kind === "task" && r.task.wbsId === envelope.id)).toBe(false);
     expect(rows.some((r) => r.kind === "wbs" && r.node.id === envelope.id && !r.expanded)).toBe(true);
+  });
+});
+
+describe("the search box and WBS group names", () => {
+  const xer = parseXer(sampleText);
+  const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const count = (query: string, withSchedule = true) => {
+    const p = makePredicate("all", query, null, null, withSchedule ? schedule : null);
+    return p ? schedule.activities.filter(p).length : schedule.activities.length;
+  };
+  const node = (name: string) => [...schedule.wbs.values()].find((n) => n.name === name)!;
+
+  test("finds everything inside a group whose name matches, however deep", () => {
+    expect(count("Building Envelope")).toBe(5);
+    expect(count("Foundations")).toBe(6);
+    // Structure has no activities of its own: they sit in its sub-groups Foundations and Superstructure
+    expect(count("Structure")).toBe(node("Structure").activityCount);
+    expect(count("Superstructure")).toBe(node("Superstructure").activityCount);
+  });
+
+  test("also matches a group's code, ignoring case", () => {
+    expect(count("riv.3.1")).toBe(6);
+    expect(count("RIV.3.2")).toBe(node("Superstructure").activityCount);
+  });
+
+  test("still matches task code and task name as before", () => {
+    expect(count("SS1010")).toBe(1);
+    expect(count("roof slab")).toBe(1);
+    expect(count("")).toBe(schedule.activities.length);
+  });
+
+  test("the project's own top row is not searched, or 'Riverside' would match everything", () => {
+    expect(schedule.roots[0]!.name).toBe("Riverside Office Building");
+    expect(count("Riverside")).toBe(0);
+  });
+
+  test("without a schedule the search behaves as it always did (task code and name only)", () => {
+    expect(count("Building Envelope", false)).toBe(0);
+    expect(count("SS1010", false)).toBe(1);
+  });
+
+  test("the rows show the matching groups with their match counts", () => {
+    const rows = buildRows(schedule.roots, new Set(), makePredicate("all", "Foundations", null, null, schedule));
+    const group = rows.find((r) => r.kind === "wbs" && r.node.name === "Foundations");
+    expect(group).toMatchObject({ matches: 6, expanded: true });
+    expect(rows.filter((r) => r.kind === "task")).toHaveLength(6);
+    expect(rows.some((r) => r.kind === "wbs" && r.node.name === "Site Works")).toBe(false);
+  });
+});
+
+describe("describeDateRange (the Dates chip label)", () => {
+  test("says 'Any dates' when nothing is set, or when the values aren't real dates", () => {
+    expect(describeDateRange("", "")).toBe("Any dates");
+    expect(describeDateRange("not a date", "")).toBe("Any dates");
+  });
+
+  test("shows both ends, or says which end is open", () => {
+    expect(describeDateRange("2026-10-01", "2026-10-31")).toBe("01-Oct-26 – 31-Oct-26");
+    expect(describeDateRange("2026-10-01", "")).toBe("From 01-Oct-26");
+    expect(describeDateRange("", "2026-10-31")).toBe("Until 31-Oct-26");
   });
 });

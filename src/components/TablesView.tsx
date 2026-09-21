@@ -135,9 +135,9 @@ export function TablesView({ xer, requested }: Props) {
                 type="button"
                 onClick={() => setSelected(n)}
                 aria-current={n === selected}
-                className={`flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 ${
+                className={`flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/40 ${
                   n === selected
-                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                    ? "bg-accent-50 text-accent-700 dark:bg-accent-950/60 dark:text-accent-300"
                     : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
                 }`}
               >
@@ -193,7 +193,7 @@ export function TablesView({ xer, requested }: Props) {
                       onClick={() => cycleSort(c)}
                       title={`Sort by ${f}`}
                       aria-sort={sort?.col === c ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
-                      className="flex shrink-0 items-center gap-1 truncate px-2 text-left font-mono hover:bg-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40 dark:hover:bg-slate-800"
+                      className="flex shrink-0 items-center gap-1 truncate px-2 text-left font-mono hover:bg-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/40 dark:hover:bg-slate-800"
                       style={{ width: widths[c] }}
                     >
                       <span className="truncate">{f}</span>

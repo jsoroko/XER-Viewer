@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
+import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
+import { downloadBlob } from "../lib/csv";
 import { buildLinks } from "../lib/links";
+import { buildPdf, describeFilters, estimatePages, safeFileName } from "../lib/printPdf";
 import {
+  ACTIVITY_FILTERS,
   buildRows,
   collapsibleIds,
   makePredicate,
@@ -18,10 +22,13 @@ import {
   type Timeline,
 } from "../lib/timeline";
 import { useVirtualRows } from "../lib/useVirtualRows";
+import { usePersistedBoolean } from "../state/usePersistedBoolean";
 import { nonWorkingRuns } from "../lib/xer/calendar";
 import { isMilestone, type Activity, type Schedule as ScheduleModel, type WbsNode } from "../lib/xer/model";
 import { ActivityDetails } from "./ActivityDetails";
-import { STATUS_DOT, buttonClass, inputClass, toggleClass } from "./ui";
+import { DateRangeChip } from "./DateRangeChip";
+import { FilterBuilder } from "./FilterBuilder";
+import { STATUS_DOT, Switch, buttonClass, inputClass, toggleClass } from "./ui";
 
 const ROW_H = 26;
 const HEADER_H = 44;
@@ -38,21 +45,6 @@ const FIXED_W = COLUMNS.reduce((n, c) => n + c.w, 0);
 // The activity-name column gets whatever the fixed columns leave over, so keep it usable.
 const LEFT_MIN = FIXED_W + 220;
 const LEFT_DEFAULT = FIXED_W + 380;
-
-const FILTERS: Array<{ id: ActivityFilter; label: string }> = [
-  { id: "all", label: "All activities" },
-  { id: "critical", label: "Critical" },
-  { id: "not-started", label: "Not started" },
-  { id: "in-progress", label: "In progress" },
-  { id: "completed", label: "Completed" },
-  { id: "milestones", label: "Milestones" },
-];
-
-const DATE_MODES: Array<{ id: DateMode; label: string }> = [
-  { id: "active", label: "Active in range" },
-  { id: "starts", label: "Starting in range" },
-  { id: "finishes", label: "Finishing in range" },
-];
 
 /** Non-working shading is only useful (and cheap enough) once days are a few pixels wide. */
 const SHADING_MIN_PX_PER_DAY = 3;
@@ -77,9 +69,16 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [dateMode, setDateMode] = useState<DateMode>("active");
+  const [advanced, setAdvanced] = useState<AdvancedFilter>(EMPTY_FILTER);
+  const [showBuilder, setShowBuilder] = useState(false);
   const [showLinks, setShowLinks] = useState(true);
   const [showNonWorking, setShowNonWorking] = useState(true);
+  // Whether the search box also looks at WBS group names. A preference, so it is remembered and not reset per project.
+  const [searchGroups, setSearchGroups] = usePersistedBoolean("xerview-search-groups", true);
   const [zoom, setZoom] = useState<number | null>(null); // null = fit to width
+  // While a PDF is being built: how many pages are done. Null when idle.
+  const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [leftW, setLeftW] = useState(() =>
     Math.max(LEFT_MIN, Math.min(LEFT_DEFAULT, Math.round(window.innerWidth * 0.45))),
   );
@@ -92,13 +91,18 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     setFilter("all");
     setDateFrom("");
     setDateTo("");
+    setAdvanced(EMPTY_FILTER);
     setZoom(null);
   }, [schedule]);
 
   const dateRange = useMemo(() => toDateRange(dateFrom, dateTo, dateMode), [dateFrom, dateTo, dateMode]);
   const dateRangeInvalid = dateRange === "invalid";
   const activeRange = dateRange === "invalid" ? null : dateRange; // an inverted range filters nothing
-  const predicate = useMemo(() => makePredicate(filter, query, activeRange), [filter, query, activeRange]);
+  const compiled = useMemo(() => compileFilter(schedule, advanced), [schedule, advanced]);
+  const predicate = useMemo(
+    () => makePredicate(filter, query, activeRange, compiled.predicate, searchGroups ? schedule : null),
+    [filter, query, activeRange, compiled, schedule, searchGroups],
+  );
   // Which groups are closed. While a filter is active it has its own state, which starts fully open for each
   // new filter, so results are never hidden inside a group you collapsed under a different view. Your normal
   // layout is kept separately and comes back when the filter is cleared.
@@ -152,6 +156,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
       setQuery("");
       setDateFrom("");
       setDateTo("");
+      setAdvanced(EMPTY_FILTER);
     }
     // Only re-run when the selection itself changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,6 +274,25 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     drag.current = null;
   };
 
+  const printToPdf = async () => {
+    const filters = { status: filter, query, searchGroups, dateFrom, dateTo, dateMode, advanced };
+    const pages = estimatePages(rows.length, describeFilters(filters).length ? 2 : 1);
+    if (pages > 100 && !window.confirm(`This will make a PDF of about ${pages} A3 pages. Continue?`)) return;
+    setPdfError(null);
+    setPdfProgress({ done: 0, total: pages });
+    try {
+      const { blob } = await buildPdf(
+        { schedule, rows, filters, matched: matchCount, total: schedule.stats.activities },
+        { onProgress: (done, total) => setPdfProgress({ done, total }) },
+      );
+      downloadBlob(safeFileName(schedule.project.name), blob);
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : "Couldn't make the PDF.");
+    } finally {
+      setPdfProgress(null);
+    }
+  };
+
   const treeW = leftW - FIXED_W;
   const visible = rows.slice(virtual.start, virtual.end);
   // Counted from the data, not the rows, so collapsing a group doesn't change how many activities match.
@@ -282,83 +306,105 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
       {/* Toolbar */}
       <div className="border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
         {/* Row 1: what to show */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <input
-            type="search"
-            aria-label="Search activities"
-            placeholder="Search ID or name…"
-            className={`${inputClass} w-52`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+          <div className="relative">
+            <input
+              type="search"
+              aria-label="Search activities"
+              placeholder={searchGroups ? "Search ID, name, group…" : "Search ID or name…"}
+              title={
+                searchGroups
+                  ? "Searches task code, task name, and the names and codes of the WBS groups above each task"
+                  : "Searches task code and task name only"
+              }
+              className={`${inputClass} w-72 pr-28 [&::-webkit-search-cancel-button]:appearance-none`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="absolute inset-y-0 right-2 flex items-center gap-2">
+              {query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setQuery("")}
+                  className="rounded px-1 text-xs text-slate-400 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:text-slate-200"
+                >
+                  ✕
+                </button>
+              )}
+              <Switch
+                checked={searchGroups}
+                onChange={setSearchGroups}
+                label="Groups"
+                title="Also search the names and codes of the WBS groups above each task (e.g. a work package). Switch off to search task code and name only."
+              />
+            </div>
+          </div>
+
           <select
             aria-label="Filter activities"
             className={inputClass}
             value={filter}
             onChange={(e) => setFilter(e.target.value as ActivityFilter)}
           >
-            {FILTERS.map((f) => (
+            {ACTIVITY_FILTERS.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.label}
               </option>
             ))}
           </select>
 
-          <fieldset className="flex items-center gap-1.5">
-            <legend className="sr-only">Date range</legend>
-            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-              From
-              <input
-                type="date"
-                className={`${inputClass} w-[9.5rem] ${dateRangeInvalid ? "border-red-500 focus:border-red-500 focus:ring-red-500/30" : ""}`}
-                value={dateFrom}
-                max={dateTo || undefined}
-                aria-invalid={dateRangeInvalid || undefined}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-              To
-              <input
-                type="date"
-                className={`${inputClass} w-[9.5rem] ${dateRangeInvalid ? "border-red-500 focus:border-red-500 focus:ring-red-500/30" : ""}`}
-                value={dateTo}
-                min={dateFrom || undefined}
-                aria-invalid={dateRangeInvalid || undefined}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </label>
-            <select
-              aria-label="Date filter mode"
-              className={inputClass}
-              value={dateMode}
-              disabled={!dateFrom && !dateTo}
-              onChange={(e) => setDateMode(e.target.value as DateMode)}
-            >
-              {DATE_MODES.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            {(dateFrom || dateTo) && (
-              <button type="button" className={buttonClass} onClick={clearDates}>
-                Clear dates
-              </button>
-            )}
-          </fieldset>
+          <button
+            type="button"
+            className={toggleClass(showBuilder || compiled.active > 0)}
+            aria-expanded={showBuilder}
+            onClick={() => setShowBuilder((v) => !v)}
+            title="Filter by activity code, task or WBS"
+          >
+            Filters{compiled.active > 0 ? ` (${compiled.active})` : ""}
+          </button>
 
-          <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-live="polite">
+          <DateRangeChip
+            from={dateFrom}
+            to={dateTo}
+            mode={dateMode}
+            invalid={dateRangeInvalid}
+            onFrom={setDateFrom}
+            onTo={setDateTo}
+            onMode={setDateMode}
+            onClear={clearDates}
+          />
+
+          <span className="ml-auto whitespace-nowrap text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-live="polite">
             {predicate
               ? `${fmtInt(matchCount)} of ${fmtInt(schedule.stats.activities)} activities`
               : `${fmtInt(schedule.stats.activities)} activities`}
           </span>
-          {dateRangeInvalid && (
-            <span role="alert" className="text-xs font-medium text-red-600 dark:text-red-400">
-              “From” is after “To” — date filter ignored
+          <button
+            type="button"
+            className={`${buttonClass} gap-1.5`}
+            onClick={printToPdf}
+            disabled={pdfProgress !== null || rows.length === 0}
+            title={
+              rows.length === 0
+                ? "Nothing to print: no activities match the filters"
+                : "Save what is shown (with the current filters) as a PDF on A3 paper, landscape"
+            }
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2" />
+              <rect x="6" y="14" width="12" height="7" rx="1" />
+            </svg>
+            {pdfProgress ? `Page ${Math.min(pdfProgress.done + 1, pdfProgress.total)} of ${pdfProgress.total}…` : "PDF"}
+          </button>
+          {pdfError && (
+            <span role="alert" className="basis-full text-right text-xs text-red-600 dark:text-red-400">
+              {pdfError}
             </span>
           )}
         </div>
+
+        {showBuilder && <FilterBuilder schedule={schedule} value={advanced} onChange={setAdvanced} />}
 
         {/* Row 2: how to show it */}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -374,30 +420,25 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               Collapse all
             </button>
           </div>
-          <div className="flex gap-1">
-            <button
-              type="button"
-              className={toggleClass(showLinks)}
-              aria-pressed={showLinks}
-              onClick={() => setShowLinks((v) => !v)}
+          <span aria-hidden className="h-5 w-px bg-slate-300 dark:bg-slate-700" />
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={showLinks}
+              onChange={setShowLinks}
+              label="Links"
               title="Draw the selected activity's predecessors and successors"
-            >
-              Links
-            </button>
-            <button
-              type="button"
-              className={toggleClass(showNonWorking && pattern !== null)}
-              aria-pressed={showNonWorking && pattern !== null}
+            />
+            <Switch
+              checked={showNonWorking && pattern !== null}
+              onChange={setShowNonWorking}
               disabled={pattern === null}
-              onClick={() => setShowNonWorking((v) => !v)}
+              label="Non-working"
               title={
                 pattern === null
                   ? "This file has no readable calendar data"
                   : `Shade weekends and holidays from “${schedule.defaultCalendar?.name}” (visible when zoomed in)`
               }
-            >
-              Non-working
-            </button>
+            />
           </div>
           {links && links.hidden > 0 && (
             <span
@@ -420,8 +461,19 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               <button type="button" className={`${buttonClass} w-8 px-0`} aria-label="Zoom in" onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
                 +
               </button>
-              <button type="button" className={buttonClass} onClick={scrollToDataDate} disabled={dataDate === null}>
-                Data date
+              <button
+                type="button"
+                className={`${buttonClass} w-8 px-0`}
+                onClick={scrollToDataDate}
+                disabled={dataDate === null}
+                aria-label="Go to data date"
+                title={dataDate === null ? "This project has no data date" : "Go to the data date"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                  <circle cx="12" cy="12" r="7" />
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                </svg>
               </button>
             </div>
           </div>
@@ -458,7 +510,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 onPointerDown={onResizeDown}
                 onPointerMove={onResizeMove}
                 onPointerUp={onResizeUp}
-                className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-blue-500/40"
+                className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-accent-500/40"
               />
             </div>
             <TimeScale ticks={ticks} width={timeline.width} />
@@ -490,7 +542,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
             {/* Selected date range */}
             {activeRange && (
               <div
-                className="pointer-events-none absolute top-0 z-[4] h-full border-x border-blue-500/50 bg-blue-500/[0.07]"
+                className="pointer-events-none absolute top-0 z-[4] h-full border-x border-accent-500/50 bg-accent-500/[0.07]"
                 style={{
                   left: leftW + (activeRange.from === null ? 0 : timeline.x(activeRange.from)),
                   width:
@@ -572,6 +624,8 @@ function Legend({ links, shading }: { links: boolean; shading: boolean }) {
       {item("h-2.5 w-4 rounded-sm bg-blue-700", "Actual")}
       {item("h-2.5 w-4 rounded-sm bg-blue-400", "Remaining")}
       {item("h-2.5 w-4 rounded-sm bg-red-500", "Critical")}
+      {item("h-1.5 w-4 rounded-sm bg-teal-500", "Level of effort")}
+      {item("h-2 w-4 bg-slate-700 dark:bg-slate-300", "WBS group")}
       {item("size-2.5 rotate-45 bg-slate-800 dark:bg-slate-200", "Milestone")}
       {item("h-3 w-px bg-orange-500", "Data date")}
       {links && item("h-0.5 w-4 bg-amber-500", "Predecessor")}
@@ -617,7 +671,7 @@ interface RowProps {
 function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, onToggle, onSelect }: RowProps) {
   const isWbs = row.kind === "wbs";
   const bg = selected
-    ? "bg-blue-50 dark:bg-blue-950"
+    ? "bg-accent-50 dark:bg-accent-950"
     : isWbs
       ? "bg-slate-50 dark:bg-slate-900"
       : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
@@ -627,7 +681,7 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
   return (
     <div
       className={`group absolute left-0 flex border-b border-slate-100 text-xs dark:border-slate-800 ${
-        selected ? "bg-blue-50/60 dark:bg-blue-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
+        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
       }`}
       style={{ top, height: ROW_H, width: totalW }}
       onClick={handle}
