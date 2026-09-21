@@ -38,6 +38,11 @@ bun run build      # static site in dist/ — host it anywhere
 
 Click **Try a sample project** on the start screen to explore without a file.
 
+## Deployment
+
+The build output is a static site. For hosting on a Raspberry Pi behind Cloudflare Tunnel and Nginx, with the
+app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/deployment-raspberrypi.md).
+
 ## Layout
 
 | Path | What it does |
