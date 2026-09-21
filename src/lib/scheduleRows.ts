@@ -9,6 +9,8 @@ export interface WbsRow {
   node: WbsNode;
   depth: number;
   expanded: boolean;
+  /** Activities in this branch that pass the filter; undefined when nothing is being filtered. */
+  matches?: number;
 }
 export interface TaskRow {
   kind: "task";
@@ -78,26 +80,38 @@ export function makePredicate(
 }
 
 /**
- * Flattens the WBS tree into display rows. While a predicate is active every
- * WBS node with a match is forced open and empty branches are dropped.
+ * Flattens the WBS tree into display rows. `collapsed` is honoured whether or not a filter is active.
+ * While filtering, branches with no matching activity are dropped (open or not), and each remaining
+ * group reports how many activities in it match.
  */
 export function buildRows(
   roots: WbsNode[],
   collapsed: ReadonlySet<string>,
   predicate: ((a: Activity) => boolean) | null,
 ): Row[] {
+  const matches = new Map<string, number>();
+  if (predicate) {
+    const count = (node: WbsNode): number => {
+      let n = 0;
+      for (const child of node.children) n += count(child);
+      for (const task of node.activities) if (predicate(task)) n++;
+      matches.set(node.id, n);
+      return n;
+    };
+    roots.forEach(count);
+  }
+
   const out: Row[] = [];
   const visit = (node: WbsNode, depth: number) => {
-    const mark = out.length;
-    const expanded = predicate !== null || !collapsed.has(node.id);
-    out.push({ kind: "wbs", key: `w${node.id}`, node, depth, expanded });
-    if (expanded) {
-      for (const child of node.children) visit(child, depth + 1);
-      for (const task of node.activities) {
-        if (!predicate || predicate(task)) out.push({ kind: "task", key: `t${task.id}`, task, depth: depth + 1 });
-      }
+    const found = predicate ? (matches.get(node.id) ?? 0) : undefined;
+    if (found === 0) return;
+    const expanded = !collapsed.has(node.id);
+    out.push({ kind: "wbs", key: `w${node.id}`, node, depth, expanded, matches: found });
+    if (!expanded) return;
+    for (const child of node.children) visit(child, depth + 1);
+    for (const task of node.activities) {
+      if (!predicate || predicate(task)) out.push({ kind: "task", key: `t${task.id}`, task, depth: depth + 1 });
     }
-    if (predicate !== null && out.length === mark + 1) out.length = mark;
   };
   roots.forEach((r) => visit(r, 0));
   return out;

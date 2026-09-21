@@ -94,3 +94,55 @@ describe("makePredicate with a date range", () => {
     expect(rows.filter((r) => r.kind === "wbs").length).toBeLessThan(schedule.stats.wbsNodes);
   });
 });
+
+describe("collapsing groups while a filter is active", () => {
+  const xer = parseXer(sampleText);
+  const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+  // "curtain" matches PR1020 (Permits & Procurement) plus EN1010 and EN1020 (Building Envelope).
+  const predicate = makePredicate("all", "curtain")!;
+  const node = (name: string) => [...schedule.wbs.values()].find((n) => n.name === name)!;
+  const codes = (rows: ReturnType<typeof buildRows>) => rows.filter((r) => r.kind === "task").map((r) => (r as { task: { code: string } }).task.code);
+  const envelope = node("Building Envelope");
+
+  test("with nothing collapsed, every match is shown", () => {
+    expect(codes(buildRows(schedule.roots, new Set(), predicate)).sort()).toEqual(["EN1010", "EN1020", "PR1020"]);
+  });
+
+  test("a collapsed group hides its matches but still shows its own row, marked closed", () => {
+    const rows = buildRows(schedule.roots, new Set([envelope.id]), predicate);
+    expect(codes(rows)).toEqual(["PR1020"]);
+    const row = rows.find((r) => r.kind === "wbs" && r.node.id === envelope.id);
+    expect(row).toMatchObject({ expanded: false, matches: 2 });
+  });
+
+  test("collapsing the project root leaves just that one row", () => {
+    const rows = buildRows(schedule.roots, new Set([schedule.roots[0]!.id]), predicate);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "wbs", expanded: false, matches: 3 });
+  });
+
+  test("groups with no matches are dropped whether or not they are collapsed", () => {
+    const siteWorks = node("Site Works");
+    const open = buildRows(schedule.roots, new Set(), predicate);
+    const closed = buildRows(schedule.roots, new Set([siteWorks.id]), predicate);
+    for (const rows of [open, closed]) {
+      expect(rows.some((r) => r.kind === "wbs" && r.node.id === siteWorks.id)).toBe(false);
+    }
+    expect(closed).toEqual(open);
+  });
+
+  test("each group reports how many of its activities match; nothing is reported without a filter", () => {
+    const rows = buildRows(schedule.roots, new Set(), predicate);
+    const matchesOf = (name: string) => rows.find((r) => r.kind === "wbs" && r.node.name === name);
+    expect(matchesOf("Building Envelope")).toMatchObject({ matches: 2 });
+    expect(matchesOf("Permits & Procurement")).toMatchObject({ matches: 1 });
+    expect(matchesOf("Riverside Office Building")).toMatchObject({ matches: 3 });
+    for (const r of buildRows(schedule.roots, new Set(), null)) if (r.kind === "wbs") expect(r.matches).toBeUndefined();
+  });
+
+  test("without a filter the collapsed set works exactly as before", () => {
+    const rows = buildRows(schedule.roots, new Set([envelope.id]), null);
+    expect(rows.some((r) => r.kind === "task" && r.task.wbsId === envelope.id)).toBe(false);
+    expect(rows.some((r) => r.kind === "wbs" && r.node.id === envelope.id && !r.expanded)).toBe(true);
+  });
+});

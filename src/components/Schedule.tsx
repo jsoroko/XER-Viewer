@@ -57,6 +57,8 @@ const DATE_MODES: Array<{ id: DateMode; label: string }> = [
 /** Non-working shading is only useful (and cheap enough) once days are a few pixels wide. */
 const SHADING_MIN_PX_PER_DAY = 3;
 
+const NO_GROUPS: ReadonlySet<string> = new Set();
+
 interface Props {
   schedule: ScheduleModel;
   selectedId: string | null;
@@ -64,7 +66,12 @@ interface Props {
 }
 
 export function Schedule({ schedule, selectedId, onSelect }: Props) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const [normalCollapsed, setNormalCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // Groups collapsed while a filter is active, tagged with the filter they belong to (see below).
+  const [filterCollapse, setFilterCollapse] = useState<{ for: unknown; ids: ReadonlySet<string> }>({
+    for: null,
+    ids: NO_GROUPS,
+  });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -79,7 +86,8 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
 
   // A different project starts from a clean slate.
   useEffect(() => {
-    setCollapsed(new Set());
+    setNormalCollapsed(new Set());
+    setFilterCollapse({ for: null, ids: NO_GROUPS });
     setQuery("");
     setFilter("all");
     setDateFrom("");
@@ -91,6 +99,20 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const dateRangeInvalid = dateRange === "invalid";
   const activeRange = dateRange === "invalid" ? null : dateRange; // an inverted range filters nothing
   const predicate = useMemo(() => makePredicate(filter, query, activeRange), [filter, query, activeRange]);
+  // Which groups are closed. While a filter is active it has its own state, which starts fully open for each
+  // new filter, so results are never hidden inside a group you collapsed under a different view. Your normal
+  // layout is kept separately and comes back when the filter is cleared.
+  const collapsed = predicate ? (filterCollapse.for === predicate ? filterCollapse.ids : NO_GROUPS) : normalCollapsed;
+  const updateCollapsed = useCallback(
+    (change: (prev: ReadonlySet<string>) => ReadonlySet<string>) => {
+      if (predicate) {
+        setFilterCollapse((cur) => ({ for: predicate, ids: change(cur.for === predicate ? cur.ids : NO_GROUPS) }));
+      } else {
+        setNormalCollapsed(change);
+      }
+    },
+    [predicate],
+  );
   const rows = useMemo(() => buildRows(schedule.roots, collapsed, predicate), [schedule, collapsed, predicate]);
   const virtual = useVirtualRows({ count: rows.length, rowHeight: ROW_H });
   const { scrollToIndex } = virtual;
@@ -113,12 +135,17 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     const a = schedule.activityById.get(selectedId);
     if (!a || a.projectId !== schedule.project.id) return;
     scrollTarget.current = selectedId;
-    setCollapsed((prev) => {
+    const openAncestors = (prev: ReadonlySet<string>) => {
       let next: Set<string> | null = null;
       for (let n = schedule.wbs.get(a.wbsId); n; n = n.parentId ? schedule.wbs.get(n.parentId) : undefined) {
         if (prev.has(n.id)) (next ??= new Set(prev)).delete(n.id);
       }
       return next ?? prev;
+    };
+    setNormalCollapsed(openAncestors);
+    setFilterCollapse((cur) => {
+      const ids = openAncestors(cur.ids);
+      return ids === cur.ids ? cur : { for: cur.for, ids };
     });
     if (predicate && !predicate(a)) {
       setFilter("all");
@@ -170,13 +197,16 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   );
   const shading = showNonWorking && pxPerDay >= SHADING_MIN_PX_PER_DAY ? nonWorking : [];
 
-  const toggle = useCallback((id: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  }, []);
+  const toggle = useCallback(
+    (id: string) => {
+      updateCollapsed((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      });
+    },
+    [updateCollapsed],
+  );
 
   const scrollToDataDate = () => {
     const el = virtual.ref.current;
@@ -241,7 +271,11 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
 
   const treeW = leftW - FIXED_W;
   const visible = rows.slice(virtual.start, virtual.end);
-  const taskCount = useMemo(() => rows.reduce((n, r) => n + (r.kind === "task" ? 1 : 0), 0), [rows]);
+  // Counted from the data, not the rows, so collapsing a group doesn't change how many activities match.
+  const matchCount = useMemo(
+    () => (predicate ? schedule.activities.reduce((n, a) => n + (predicate(a) ? 1 : 0), 0) : schedule.stats.activities),
+    [predicate, schedule],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -316,7 +350,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
 
           <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-live="polite">
             {predicate
-              ? `${fmtInt(taskCount)} of ${fmtInt(schedule.stats.activities)} activities`
+              ? `${fmtInt(matchCount)} of ${fmtInt(schedule.stats.activities)} activities`
               : `${fmtInt(schedule.stats.activities)} activities`}
           </span>
           {dateRangeInvalid && (
@@ -329,14 +363,13 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
         {/* Row 2: how to show it */}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex gap-1">
-            <button type="button" className={buttonClass} onClick={() => setCollapsed(new Set())} disabled={predicate !== null}>
+            <button type="button" className={buttonClass} onClick={() => updateCollapsed(() => NO_GROUPS)}>
               Expand all
             </button>
             <button
               type="button"
               className={buttonClass}
-              onClick={() => setCollapsed(new Set(collapsibleIds(schedule.roots)))}
-              disabled={predicate !== null}
+              onClick={() => updateCollapsed(() => new Set(collapsibleIds(schedule.roots)))}
             >
               Collapse all
             </button>
@@ -621,7 +654,12 @@ function WbsCells({ row, treeW }: { row: Extract<Row, { kind: "wbs" }>; treeW: n
           {row.expanded ? "▼" : "▶"}
         </span>
         <span className="truncate">{node.name}</span>
-        <span className="shrink-0 font-normal text-slate-400">{fmtInt(node.activityCount)}</span>
+        <span
+          className="shrink-0 font-normal text-slate-400"
+          title={row.matches === undefined ? undefined : `${row.matches} matching of ${node.activityCount}`}
+        >
+          {fmtInt(row.matches ?? node.activityCount)}
+        </span>
       </div>
       <div className={numCell} style={{ width: COLUMNS[0].w + COLUMNS[1].w }} />
       <div className={numCell} style={{ width: COLUMNS[2].w }}>
