@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import logo from "../favicon.svg";
 import { buttonClass } from "./ui";
 
 interface Props {
@@ -18,7 +19,10 @@ export function Welcome({ loading, error, onFile, onSample }: Props) {
       <div className="flex flex-1 items-center justify-center p-6">
         <div className="w-full max-w-xl">
           <div className="mb-8 text-center">
-            <h1 className="text-3xl font-semibold tracking-tight">XER Viewer</h1>
+            <h1 className="flex items-center justify-center gap-3 text-3xl font-semibold tracking-tight">
+              <img src={logo} alt="" className="size-9 shrink-0" />
+              XER Viewer
+            </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
               Open a Primavera P6 export to browse the schedule, Gantt chart, logic and raw tables.
             </p>

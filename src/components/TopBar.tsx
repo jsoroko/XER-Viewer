@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { fmtBytes } from "../lib/format";
 import type { Project } from "../lib/xer/model";
 import type { Mode, PaletteId } from "../lib/themes";
+import logo from "../favicon.svg";
 import { ThemeMenu } from "./ThemeMenu";
 import { buttonClass, inputClass } from "./ui";
 
@@ -34,7 +35,10 @@ export function TopBar(p: Props) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-900">
-      <div className="shrink-0 whitespace-nowrap text-sm font-semibold tracking-tight">XER Viewer</div>
+      <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm font-semibold tracking-tight">
+        <img src={logo} alt="" className="size-6 shrink-0" />
+        XER Viewer
+      </div>
 
       <nav className="flex h-full items-stretch gap-1" aria-label="Views">
         {TABS.map((t) => (

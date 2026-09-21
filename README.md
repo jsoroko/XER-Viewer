@@ -11,15 +11,17 @@ the browser and never leaves your machine, so there is no backend.
   next critical activities, file metadata and a table inventory.
 - **Schedule** – WBS-grouped activity table with a synchronized Gantt chart: actual/remaining split at the data
   date, critical path in red, milestones, level-of-effort bars, WBS summary bars, zoom/fit, virtualized rows
-  (tested with 50,000 activities). Search (task code, task name, and the name or code of any WBS group above a
-  task, so "WP23" finds everything inside a WP23 group; the project's top row is ignored), status/critical/milestone
+  (tested with 50,000 activities). Search (task code and task name; switch **Groups** on to also match the name or
+  code of any WBS group above a task, so "WP23" finds everything inside a WP23 group; the project's top row is
+  ignored), status/critical/milestone
   filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
-  - **Dependency lines** – select an activity to draw its predecessors (amber) and successors (violet) with
+  - **Dependency lines** – switch **Links** on, then select an activity to draw its predecessors (amber) and successors (violet) with
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
   - **Date range filter** – the **Dates** button (it shows the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
     scrolled into view.
-  - **Non-working time** – weekends and holidays from the project's default calendar are shaded when zoomed in.
+  - **Non-working time** – switch **Non-working** on to shade weekends and holidays from the project's default calendar
+    when zoomed in.
   - **Filter builder** – the **Filters** button opens a panel where you combine any number of conditions
     (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
     they read: **Activity codes** (Activity ID, Activity Code, Activity Name, Activity Type ID, Activity Type Name),

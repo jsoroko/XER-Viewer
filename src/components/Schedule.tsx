@@ -71,10 +71,10 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const [dateMode, setDateMode] = useState<DateMode>("active");
   const [advanced, setAdvanced] = useState<AdvancedFilter>(EMPTY_FILTER);
   const [showBuilder, setShowBuilder] = useState(false);
-  const [showLinks, setShowLinks] = useState(true);
-  const [showNonWorking, setShowNonWorking] = useState(true);
+  const [showLinks, setShowLinks] = useState(false);
+  const [showNonWorking, setShowNonWorking] = useState(false);
   // Whether the search box also looks at WBS group names. A preference, so it is remembered and not reset per project.
-  const [searchGroups, setSearchGroups] = usePersistedBoolean("xerview-search-groups", true);
+  const [searchGroups, setSearchGroups] = usePersistedBoolean("xerview-search-groups", false);
   const [zoom, setZoom] = useState<number | null>(null); // null = fit to width
   // While a PDF is being built: how many pages are done. Null when idle.
   const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
