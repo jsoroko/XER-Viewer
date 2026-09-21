@@ -54,7 +54,7 @@ describe("the variables a theme sets", () => {
       expect(vars[`--color-accent-${s}`]).toMatch(/^#[0-9a-f]{6}$/);
     }
     expect(vars["--color-white"]).toMatch(/^#[0-9a-f]{6}$/);
-    expect(Object.keys(vars)).toHaveLength(STOPS.length * 2 + 1);
+    expect(Object.keys(vars)).toHaveLength(STOPS.length * 2 + 2); // the ramps, white, and the non-working tint
   });
 
   test.each(cases)("$name: slate and accent steps go steadily from light to dark (or dark to light in dark mode)", ({ id, mode }) => {
@@ -114,6 +114,38 @@ describe("legibility", () => {
   test("the contrast helper agrees with the known extremes", () => {
     expect(contrast("#000000", "#ffffff")).toBeCloseTo(21, 5);
     expect(contrast("#777777", "#777777")).toBe(1);
+  });
+});
+
+describe("non-working tint", () => {
+  const page = (v: Record<string, string>, mode: Mode) => (mode === "light" ? v["--color-white"]! : v["--color-slate-950"]!);
+
+  test.each(cases)("$name: clearly stronger than the old tint that blended in with the grid", ({ id, mode }) => {
+    const v = themeVars(id, mode);
+    const bg = page(v, mode);
+    const tint = v["--non-working"]!;
+    // what it used to be: slate-200 (light) or slate-800 (dark) at 50% over the page
+    const old = mix(bg, mode === "light" ? v["--color-slate-200"]! : v["--color-slate-800"]!, 0.5);
+    expect(contrast(tint, bg)).toBeGreaterThanOrEqual(1.2);
+    expect(contrast(tint, bg)).toBeGreaterThan(contrast(old, bg) * 1.09);
+  });
+
+  test.each(cases)("$name: text and the grid lines are still readable on top of it", ({ id, mode }) => {
+    const v = themeVars(id, mode);
+    const tint = v["--non-working"]!;
+    const body = mode === "light" ? v["--color-slate-900"]! : v["--color-slate-100"]!;
+    const muted = mode === "light" ? v["--color-slate-500"]! : v["--color-slate-400"]!;
+    const grid = mode === "light" ? v["--color-slate-100"]! : v["--color-slate-800"]!;
+    expect(contrast(body, tint)).toBeGreaterThanOrEqual(7);
+    // Bar labels sit on it. Muted text passes 4.5 on the plain page in every theme; on the tint it may dip a little, so
+    // this floor is what limits how strong the tint can be made.
+    expect(contrast(muted, tint)).toBeGreaterThanOrEqual(3.9);
+    expect(contrast(grid, tint)).toBeGreaterThan(1); // grid lines are drawn over it and must not vanish
+    expect(tint).not.toBe(grid);
+  });
+
+  test("it is set for every theme, in both modes, as a plain colour", () => {
+    for (const p of PALETTES) for (const mode of MODES) expect(themeVars(p.id, mode)["--non-working"]).toMatch(/^#[0-9a-f]{6}$/);
   });
 });
 

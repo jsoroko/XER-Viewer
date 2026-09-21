@@ -104,6 +104,8 @@ export function themeVars(id: string, mode: Mode): Record<string, string> {
       50: t.pn, 100: t.gr, 200: t.bd, 300: mix(t.bd, t.mu, 0.3), 400: mix(t.bd, t.mu, 0.65), 500: t.mu,
       600: mix(t.mu, t.tx, 0.35), 700: mix(t.mu, t.tx, 0.65), 800: mix(t.mu, t.tx, 0.85), 900: t.tx, 950: mix(t.tx, black, 0.35),
     });
+    // Non-working time is a flat tint, a clear step darker than the grid lines (slate-100) so it doesn't blend into them.
+    vars["--non-working"] = mix(t.gr, t.bd, 0.6);
     set("accent", {
       50: t.sel, 100: mix(t.sel, t.ac, 0.15), 200: mix(t.ac, white, 0.7), 300: mix(t.ac, white, 0.5), 400: mix(t.ac, white, 0.3),
       500: mix(t.ac, white, 0.12), 600: t.ac, 700: mix(t.ac, black, 0.15), 800: mix(t.ac, black, 0.3), 900: mix(t.ac, black, 0.45),
@@ -116,6 +118,8 @@ export function themeVars(id: string, mode: Mode): Record<string, string> {
       50: mix(t.tx, white, 0.6), 100: t.tx, 200: mix(t.mu, t.tx, 0.8), 300: mix(t.mu, t.tx, 0.5), 400: t.mu, 500: mix(t.bd, t.mu, 0.85),
       600: mix(t.bd, t.mu, 0.5), 700: t.bd, 800: t.gr, 900: t.pn, 950: t.bg,
     });
+    // ...and in dark mode a step up from the page towards the grid lines (slate-800).
+    vars["--non-working"] = mix(t.bg, t.gr, 0.9);
     set("accent", {
       50: mix(t.ac, white, 0.88), 100: mix(t.ac, white, 0.75), 200: mix(t.ac, white, 0.55), 300: mix(t.ac, white, 0.3), 400: t.ac,
       500: mix(t.sel, t.ac, 0.92), 600: mix(t.sel, t.ac, 0.8), 700: mix(t.sel, t.ac, 0.6), 800: mix(t.sel, t.ac, 0.4),

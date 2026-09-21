@@ -132,6 +132,7 @@ const C = {
   critRemaining: [248, 113, 113],
   loe: [20, 184, 166],
   dataDate: [249, 115, 22],
+  today: [217, 70, 239],
   red: [185, 28, 28],
 } as const satisfies Record<string, RGB>;
 
@@ -166,6 +167,8 @@ export interface PrintInput {
   matched: number;
   total: number;
   generatedAt?: Date;
+  /** Draw a dashed line at this time (ms), if it falls inside the printed time axis. Omit or null for none. */
+  today?: number | null;
 }
 
 export interface PdfOptions {
@@ -209,6 +212,8 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   const ticks = buildTicks(tl);
   const dataDate = schedule.project.dataDate;
   const dataDateX = dataDate !== null && dataDate >= extent.start && dataDate <= extent.end ? ganttX + tl.x(dataDate) : null;
+  const today = input.today ?? null;
+  const todayX = today !== null && today >= extent.start && today <= extent.end ? ganttX + tl.x(today) : null;
 
   const bodyTop = MARGIN + headH + COL_HEAD_H;
 
@@ -346,8 +351,17 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
       doc.line(dataDateX, headTop + COL_HEAD_H, dataDateX, bodyTop + bodyH);
     }
 
+    // -- Today line (dashed, so it can't be mistaken for the data date) -----------------------------------------------
+    if (todayX !== null && slice.length > 0) {
+      stroke(doc, C.today);
+      doc.setLineWidth(0.8);
+      doc.setLineDashPattern([3, 2], 0);
+      doc.line(todayX, headTop + COL_HEAD_H, todayX, bodyTop + bodyH);
+      doc.setLineDashPattern([], 0);
+    }
+
     // -- Footer: legend -------------------------------------------------------------------------------------------------
-    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6);
+    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, todayX !== null);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     ink(doc, C.muted);
@@ -420,7 +434,7 @@ function drawTaskBar(doc: jsPDF, a: Activity, mid: number, ganttX: number, gantt
   label(x2 + 2);
 }
 
-function drawLegend(doc: jsPDF, x0: number, y: number) {
+function drawLegend(doc: jsPDF, x0: number, y: number, showToday: boolean) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   let x = x0;
@@ -449,4 +463,13 @@ function drawLegend(doc: jsPDF, x0: number, y: number) {
     doc.setLineWidth(0.8);
     doc.line(sx + 2, y - 4, sx + 2, y + 4);
   }, 4);
+  if (showToday) {
+    item("Today", (sx) => {
+      stroke(doc, C.today);
+      doc.setLineWidth(0.8);
+      doc.setLineDashPattern([2, 1.5], 0);
+      doc.line(sx + 2, y - 4, sx + 2, y + 4);
+      doc.setLineDashPattern([], 0);
+    }, 4);
+  }
 }

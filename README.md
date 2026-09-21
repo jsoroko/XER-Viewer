@@ -19,9 +19,15 @@ the browser and never leaves your machine, so there is no backend.
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
   - **Date range filter** – the **Dates** button (it shows the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
-    scrolled into view.
-  - **Non-working time** – switch **Non-working** on to shade weekends and holidays from the project's default calendar
-    when zoomed in.
+    scrolled into view. **Fit View** fits the whole project; once a range is set it opens a menu offering *Project
+    Duration* or *Selected Dates*. Selected Dates zooms the chart to the range with one tick of the timescale as
+    margin either side: 3 days when the chart shows days, a week for weeks, a month for months, a
+    quarter for quarters. The margin is measured in whichever timescale the chart ends up showing. A range with only
+    one end set runs to the project's own start or finish on the other side.
+  - **Today** – switch **Today** on to draw a dashed magenta line at today's date (from your computer's clock),
+    separate from the solid orange data date. It is included in the PDF while the switch is on.
+  - **Non-working time** – switch **Non-working** on (it is remembered) to shade weekends and holidays from the project's default calendar
+    with a tint darker than the grid lines, when zoomed in.
   - **Filter builder** – the **Filters** button opens a panel where you combine any number of conditions
     (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
     they read: **Activity codes** (Activity ID, Activity Code, Activity Name, Activity Type ID, Activity Type Name),
@@ -75,7 +81,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/xer/parse.ts` | Tab-delimited XER parser (`%T` / `%F` / `%R`), encoding detection |
 | `src/lib/xer/model.ts` | Builds a typed schedule: WBS tree, activities, logic, resources, codes, stats |
 | `src/lib/xer/calendar.ts` | Parses P6 `clndr_data` work patterns; working days, non-working runs, summaries |
-| `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale, windowing |
+| `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale (and the fit-to-range margin logic), windowing |
 | `src/lib/advancedFilter.ts` | Filter-builder fields, operators and evaluation |
 | `src/lib/links.ts` | Orthogonal routing for the dependency lines |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |

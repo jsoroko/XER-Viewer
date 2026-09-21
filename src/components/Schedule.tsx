@@ -17,6 +17,7 @@ import {
 import {
   buildTicks,
   clampPx,
+  fitToRange,
   makeTimeline,
   paddedRange,
   type Timeline,
@@ -28,6 +29,7 @@ import { isMilestone, type Activity, type Schedule as ScheduleModel, type WbsNod
 import { ActivityDetails } from "./ActivityDetails";
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
+import { FitViewButton } from "./FitViewButton";
 import { STATUS_DOT, Switch, buttonClass, inputClass, toggleClass } from "./ui";
 
 const ROW_H = 26;
@@ -72,7 +74,13 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const [advanced, setAdvanced] = useState<AdvancedFilter>(EMPTY_FILTER);
   const [showBuilder, setShowBuilder] = useState(false);
   const [showLinks, setShowLinks] = useState(false);
-  const [showNonWorking, setShowNonWorking] = useState(false);
+  // A preference, so it is remembered: turning it on once should not need repeating after every reload.
+  const [showNonWorking, setShowNonWorking] = usePersistedBoolean("xerview-show-non-working", false);
+  // A line at today's date, from this computer's clock. Read again each time the switch is turned on.
+  const [showToday, setShowToday] = useState(false);
+  const [today, setToday] = useState(() => Date.now());
+  // Set by "Fit to dates": where the chart should scroll to once the new zoom has been drawn.
+  const [fitRequest, setFitRequest] = useState<{ start: number } | null>(null);
   // Whether the search box also looks at WBS group names. A preference, so it is remembered and not reset per project.
   const [searchGroups, setSearchGroups] = usePersistedBoolean("xerview-search-groups", false);
   const [zoom, setZoom] = useState<number | null>(null); // null = fit to width
@@ -130,6 +138,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const timeline = useMemo(() => makeTimeline(extent.start, extent.end, pxPerDay), [extent, pxPerDay]);
   const ticks = useMemo(() => buildTicks(timeline), [timeline]);
   const totalW = leftW + timeline.width;
+  const todayInView = showToday && today >= extent.start && today <= extent.end;
   const dataDate = schedule.project.dataDate;
 
   // ---- Selection: reveal, then scroll into view -------------------------------
@@ -234,6 +243,25 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRange]);
 
+  const fitToDates = () => {
+    if (!activeRange) return;
+    // A range with one end open runs to the project's own start or finish on that side.
+    const from = activeRange.from ?? schedule.range?.start ?? extent.start;
+    const to = Math.max(activeRange.to ?? schedule.range?.finish ?? extent.end, from + 86_400_000);
+    const fit = fitToRange(from, to, ganttViewW);
+    setZoom(fit.pxPerDay);
+    setFitRequest({ start: fit.start });
+  };
+
+  // Scroll once the new zoom is on screen (in the same render, so the timeline here already has it).
+  useEffect(() => {
+    const el = virtual.ref.current;
+    if (!fitRequest || !el) return;
+    el.scrollTo({ left: Math.max(0, timeline.x(fitRequest.start)) });
+    // Only when a fit is requested, not on every zoom afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitRequest]);
+
   const clearDates = () => {
     setDateFrom("");
     setDateTo("");
@@ -282,7 +310,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     setPdfProgress({ done: 0, total: pages });
     try {
       const { blob } = await buildPdf(
-        { schedule, rows, filters, matched: matchCount, total: schedule.stats.activities },
+        { schedule, rows, filters, matched: matchCount, total: schedule.stats.activities, today: showToday ? today : null },
         { onProgress: (done, total) => setPdfProgress({ done, total }) },
       );
       downloadBlob(safeFileName(schedule.project.name), blob);
@@ -439,6 +467,15 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                   : `Shade weekends and holidays from “${schedule.defaultCalendar?.name}” (visible when zoomed in)`
               }
             />
+            <Switch
+              checked={showToday}
+              onChange={(on) => {
+                setShowToday(on);
+                if (on) setToday(Date.now());
+              }}
+              label="Today"
+              title="Draw a line at today's date (from this computer's clock)"
+            />
           </div>
           {links && links.hidden > 0 && (
             <span
@@ -450,14 +487,17 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
           )}
 
           <div className="ml-auto flex items-center gap-3">
-            <Legend links={links !== null} shading={shading.length > 0} />
+            <Legend links={links !== null} shading={shading.length > 0} today={todayInView} />
             <div className="flex gap-1">
               <button type="button" className={`${buttonClass} w-8 px-0`} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 −
               </button>
-              <button type="button" className={buttonClass} onClick={() => setZoom(null)} aria-pressed={zoom === null}>
-                Fit
-              </button>
+              <FitViewButton
+                hasRange={activeRange !== null}
+                fitted={zoom === null}
+                onFitProject={() => setZoom(null)}
+                onFitDates={fitToDates}
+              />
               <button type="button" className={`${buttonClass} w-8 px-0`} aria-label="Zoom in" onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
                 +
               </button>
@@ -528,7 +568,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
             {shading.map(([from, to], i) => (
               <div
                 key={i}
-                className="pointer-events-none absolute top-0 h-full bg-slate-200/50 dark:bg-slate-800/50"
+                className="pointer-events-none absolute top-0 h-full bg-(--non-working)"
                 style={{ left: leftW + timeline.x(from), width: timeline.x(to) - timeline.x(from) }}
               />
             ))}
@@ -559,6 +599,15 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 className="pointer-events-none absolute top-0 z-[5] h-full w-px bg-orange-500"
                 style={{ left: leftW + timeline.x(dataDate) }}
                 title="Data date"
+              />
+            )}
+
+            {/* Today */}
+            {todayInView && (
+              <div
+                className="pointer-events-none absolute top-0 z-[5] h-full w-0 border-l-2 border-dashed border-fuchsia-500"
+                style={{ left: leftW + timeline.x(today) - 1 }}
+                title={`Today, ${fmtDate(today)}`}
               />
             )}
 
@@ -611,7 +660,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   );
 }
 
-function Legend({ links, shading }: { links: boolean; shading: boolean }) {
+function Legend({ links, shading, today }: { links: boolean; shading: boolean; today: boolean }) {
   const item = (swatch: string, label: string) => (
     <span className="flex items-center gap-1.5">
       <span className={swatch} />
@@ -628,9 +677,10 @@ function Legend({ links, shading }: { links: boolean; shading: boolean }) {
       {item("h-2 w-4 bg-slate-700 dark:bg-slate-300", "WBS group")}
       {item("size-2.5 rotate-45 bg-slate-800 dark:bg-slate-200", "Milestone")}
       {item("h-3 w-px bg-orange-500", "Data date")}
+      {today && item("h-3 w-0 border-l-2 border-dashed border-fuchsia-500", "Today")}
       {links && item("h-0.5 w-4 bg-amber-500", "Predecessor")}
       {links && item("h-0.5 w-4 bg-violet-500", "Successor")}
-      {shading && item("h-2.5 w-4 rounded-sm border border-slate-300 bg-slate-200/70 dark:border-slate-700 dark:bg-slate-800", "Non-working")}
+      {shading && item("h-2.5 w-4 rounded-sm border border-slate-300 bg-(--non-working) dark:border-slate-600", "Non-working")}
     </div>
   );
 }
