@@ -1,6 +1,6 @@
 import { isMilestone, wbsBranch, type Activity, type ActivityStatus, type Schedule, type WbsNode } from "./xer/model";
 import { fmtDate } from "./format";
-import { parseDate } from "./xer/values";
+import { naturalCompare, parseDate } from "./xer/values";
 
 export type ActivityFilter = "all" | "critical" | ActivityStatus | "milestones";
 
@@ -129,15 +129,66 @@ export function makePredicate(
   };
 }
 
+/** The number of WBS levels in the deepest branch (the roots are level 1). An empty tree has none. */
+export function maxWbsDepth(roots: WbsNode[]): number {
+  const depth = (node: WbsNode): number => (node.children.length === 0 ? 1 : 1 + Math.max(...node.children.map(depth)));
+  return roots.length === 0 ? 0 : Math.max(...roots.map(depth));
+}
+
+/**
+ * How siblings are ordered at every level of the WBS tree — both WBS sub-groups among themselves, and the
+ * activities inside each group:
+ * - `code`: the order already baked into the file (WBS groups in the sequence the project was built in, activities
+ *   by activity code). This is the default, and matches what the app has always shown.
+ * - `date`: everything reordered by its own start date instead — a WBS group by its earliest rolled-up start, an
+ *   activity by its own start. Applied at every level, so within a date-sorted level-1 group its level-2 sub-groups
+ *   are themselves in date order, and so on all the way down.
+ * Undated groups or activities (no dated descendants, or no start of their own) sort after everything dated.
+ */
+export type ActivitySort = "code" | "date";
+
+const dateKey = (x: { start: number | null }) => x.start ?? Infinity;
+/** Ascending by start date, undated last; ties (including two undated) broken by code, for a stable order. */
+const byDate = <T extends { start: number | null; code: string }>(a: T, b: T) => dateKey(a) - dateKey(b) || naturalCompare(a.code, b.code);
+
+function sortedChildren(children: WbsNode[], sort: ActivitySort): WbsNode[] {
+  return sort === "date" ? [...children].sort(byDate) : children; // "code" order is already how the model built the tree
+}
+function sortedActivities(activities: Activity[], sort: ActivitySort): Activity[] {
+  return sort === "date" ? [...activities].sort(byDate) : activities; // ditto
+}
+
+/**
+ * Every activity under this node. In "code" order this is the same left-to-right order the full tree shows them
+ * (each sub-group in turn, then this node's own activities) — there's no file-defined "date order" spanning
+ * sub-groups to preserve, so in "date" order the whole flattened list is sorted together instead.
+ */
+function flattenActivities(node: WbsNode, sort: ActivitySort): Activity[] {
+  const out: Activity[] = [];
+  for (const child of node.children) out.push(...flattenActivities(child, sort));
+  out.push(...node.activities);
+  return sort === "date" ? out.sort(byDate) : out;
+}
+
 /**
  * Flattens the WBS tree into display rows. `collapsed` is honoured whether or not a filter is active.
  * While filtering, branches with no matching activity are dropped (open or not), and each remaining
  * group reports how many activities in it match.
+ *
+ * `wbsDepth` limits how many levels of WBS group get their own row, like P6's "Group by WBS" level
+ * setting (the roots are level 1). Once that many levels have been shown, every activity still below
+ * is listed directly under the deepest group shown, with no further group rows in between. Group
+ * dates, activity counts and match counts are unaffected: they still cover the whole branch. Null
+ * (the default) shows every level, as before.
+ *
+ * `sort` chooses the order of siblings at every level; see `ActivitySort`. Defaults to "code", today's behaviour.
  */
 export function buildRows(
   roots: WbsNode[],
   collapsed: ReadonlySet<string>,
   predicate: ((a: Activity) => boolean) | null,
+  wbsDepth: number | null = null,
+  sort: ActivitySort = "code",
 ): Row[] {
   const matches = new Map<string, number>();
   if (predicate) {
@@ -158,12 +209,18 @@ export function buildRows(
     const expanded = !collapsed.has(node.id);
     out.push({ kind: "wbs", key: `w${node.id}`, node, depth, expanded, matches: found });
     if (!expanded) return;
-    for (const child of node.children) visit(child, depth + 1);
-    for (const task of node.activities) {
+    if (wbsDepth !== null && depth + 1 >= wbsDepth) {
+      for (const task of flattenActivities(node, sort)) {
+        if (!predicate || predicate(task)) out.push({ kind: "task", key: `t${task.id}`, task, depth: depth + 1 });
+      }
+      return;
+    }
+    for (const child of sortedChildren(node.children, sort)) visit(child, depth + 1);
+    for (const task of sortedActivities(node.activities, sort)) {
       if (!predicate || predicate(task)) out.push({ kind: "task", key: `t${task.id}`, task, depth: depth + 1 });
     }
   };
-  roots.forEach((r) => visit(r, 0));
+  sortedChildren(roots, sort).forEach((r) => visit(r, 0));
   return out;
 }
 

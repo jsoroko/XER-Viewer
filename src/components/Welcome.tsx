@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import logo from "../favicon.svg";
+import { LuUpload } from "react-icons/lu";
 import { buttonClass } from "./ui";
 
 interface Props {
@@ -41,10 +42,7 @@ export function Welcome({ loading, error, onFile, onSample }: Props) {
               </>
             ) : (
               <>
-                <svg viewBox="0 0 24 24" className="size-9 text-slate-400 group-hover:text-accent-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 16V4m0 0-4 4m4-4 4 4" />
-                  <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
-                </svg>
+                <LuUpload className="size-9 text-slate-400 group-hover:text-accent-500" strokeWidth={1.5} aria-hidden />
                 <span className="text-base font-medium">Drop an .xer file here, or click to browse</span>
                 <span className="text-sm text-slate-500 dark:text-slate-400">
                   Files are read and parsed in your browser and never uploaded.

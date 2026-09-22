@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { LuChevronDown } from "react-icons/lu";
 import { buttonClass } from "./ui";
 
 interface Props {
@@ -62,9 +63,7 @@ export function FitViewButton({ hasRange, fitted, onFitProject, onFitDates }: Pr
         title="Fit the chart to the whole project or to the selected dates"
       >
         Fit View
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="m6 9 6 6 6-6" />
-        </svg>
+        <LuChevronDown size={14} aria-hidden />
       </button>
 
       {shown && (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PALETTES, type Mode, type PaletteId } from "../lib/themes";
-import { buttonClass } from "./ui";
+import { LuPalette } from "react-icons/lu";
+import { iconButtonClass } from "./ui";
 
 const MODES: Array<{ id: Mode; label: string; glyph: string }> = [
   { id: "light", label: "Light", glyph: "☀" },
@@ -43,19 +44,14 @@ export function ThemeMenu({ palette, mode, onPalette, onMode }: Props) {
     <div ref={box} className="relative">
       <button
         type="button"
-        className={`${buttonClass} w-8 px-0`}
+        className={iconButtonClass}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Appearance"
         title="Colour theme, light or dark"
         onClick={() => setOpen((v) => !v)}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-7.8-9-7.8Z" />
-          <circle cx="7.5" cy="11" r=".6" fill="currentColor" />
-          <circle cx="11" cy="7" r=".6" fill="currentColor" />
-          <circle cx="15.5" cy="8" r=".6" fill="currentColor" />
-        </svg>
+        <LuPalette size={18} aria-hidden />
       </button>
 
       {open && (

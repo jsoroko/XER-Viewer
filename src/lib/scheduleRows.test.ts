@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { buildRows, describeDateRange, endOfDay, makePredicate, matchesDateRange, toDateRange } from "./scheduleRows";
-import { buildSchedule, listProjects, type Activity } from "./xer/model";
+import { buildRows, describeDateRange, endOfDay, makePredicate, matchesDateRange, maxWbsDepth, toDateRange } from "./scheduleRows";
+import { buildSchedule, listProjects, type Activity, type WbsNode } from "./xer/model";
 import { parseXer } from "./xer/parse";
 
 const sampleText = await Bun.file(new URL("../sample/sample.xer", import.meta.url)).text();
 
 const d = (y: number, m: number, day: number, h = 0) => new Date(y, m - 1, day, h).getTime();
 const act = (start: number | null, finish: number | null) => ({ start, finish }) as Activity;
+/** A bare-bones WBS node for testing tree-shape helpers in isolation, without a whole schedule. */
+const wbsNode = (children: WbsNode[] = [], activities: Activity[] = []) => ({ children, activities }) as WbsNode;
 
 describe("toDateRange", () => {
   test("is null with no dates, whole-day inclusive otherwise", () => {
@@ -191,6 +193,175 @@ describe("the search box and WBS group names", () => {
     expect(group).toMatchObject({ matches: 6, expanded: true });
     expect(rows.filter((r) => r.kind === "task")).toHaveLength(6);
     expect(rows.some((r) => r.kind === "wbs" && r.node.name === "Site Works")).toBe(false);
+  });
+});
+
+describe("maxWbsDepth", () => {
+  test("a single node with no children is one level", () => {
+    expect(maxWbsDepth([wbsNode()])).toBe(1);
+  });
+
+  test("counts the deepest branch, not the shallowest", () => {
+    const deep = wbsNode([wbsNode([wbsNode()])]); // three levels down this branch
+    const shallow = wbsNode();
+    expect(maxWbsDepth([deep, shallow])).toBe(3);
+  });
+
+  test("an empty tree has no levels", () => {
+    expect(maxWbsDepth([])).toBe(0);
+  });
+
+  test("the sample project's WBS is three levels deep, e.g. Riverside > Structure > Foundations", () => {
+    const xer = parseXer(sampleText);
+    const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+    expect(maxWbsDepth(schedule.roots)).toBe(3);
+  });
+});
+
+describe("buildRows with a WBS depth limit", () => {
+  const xer = parseXer(sampleText);
+  const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const node = (name: string) => [...schedule.wbs.values()].find((n) => n.name === name)!;
+  const kinds = (rows: ReturnType<typeof buildRows>) => rows.map((r) => (r.kind === "wbs" ? `w:${r.node.name}` : `t:${r.task.code}`));
+  const taskCodes = (rows: ReturnType<typeof buildRows>) => rows.filter((r) => r.kind === "task").map((r) => (r as { task: { code: string } }).task.code);
+
+  test("null (the default) is unchanged: every WBS level gets its own row", () => {
+    expect(buildRows(schedule.roots, new Set(), null)).toEqual(buildRows(schedule.roots, new Set(), null, null));
+  });
+
+  test("level 1: only the project's own row, every activity listed straight under it", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, 1);
+    expect(rows.filter((r) => r.kind === "wbs")).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "wbs", node: { name: "Riverside Office Building" }, depth: 0 });
+    expect(rows.slice(1).every((r) => r.kind === "task" && r.depth === 1)).toBe(true);
+    expect(taskCodes(rows)).toHaveLength(schedule.activities.length);
+  });
+
+  test("level 2: the top-level groups get rows; everything under each is flattened into it", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, 2);
+    const wbsRows = rows.filter((r) => r.kind === "wbs");
+    expect(wbsRows).toHaveLength(1 + schedule.roots[0]!.children.length);
+    expect(wbsRows.some((r) => r.kind === "wbs" && r.node.name === "Foundations")).toBe(false); // level 3, folded away
+    expect(wbsRows.some((r) => r.kind === "wbs" && r.node.name === "Structure")).toBe(true);
+    // Foundations' and Superstructure's activities now sit directly under Structure, not under a sub-row
+    const structureAt = rows.findIndex((r) => r.kind === "wbs" && r.node.name === "Structure");
+    const nextGroup = rows.findIndex((r, i) => i > structureAt && r.kind === "wbs");
+    const under = rows.slice(structureAt + 1, nextGroup === -1 ? undefined : nextGroup);
+    expect(under.every((r) => r.kind === "task")).toBe(true);
+    expect(under).toHaveLength(node("Structure").activityCount);
+  });
+
+  test("flattening never drops, duplicates or reorders an activity: same task order as unlimited depth", () => {
+    const full = taskCodes(buildRows(schedule.roots, new Set(), null));
+    expect(taskCodes(buildRows(schedule.roots, new Set(), null, 1))).toEqual(full);
+    expect(taskCodes(buildRows(schedule.roots, new Set(), null, 2))).toEqual(full);
+  });
+
+  test("at the project's true maximum depth, it matches unlimited exactly", () => {
+    const depth = maxWbsDepth(schedule.roots);
+    expect(buildRows(schedule.roots, new Set(), null, depth)).toEqual(buildRows(schedule.roots, new Set(), null));
+  });
+
+  test("combines with a filter: the flattened row lists only the matches, and reports the right count", () => {
+    const predicate = makePredicate("all", "curtain")!; // PR1020, EN1010, EN1020
+    const rows = buildRows(schedule.roots, new Set(), predicate, 1);
+    expect(rows[0]).toMatchObject({ kind: "wbs", matches: 3 });
+    expect(taskCodes(rows).sort()).toEqual(["EN1010", "EN1020", "PR1020"]);
+  });
+
+  test("collapsing the deepest visible group still hides everything flattened into it", () => {
+    const structure = node("Structure");
+    const rows = buildRows(schedule.roots, new Set([structure.id]), null, 2);
+    const row = rows.find((r) => r.kind === "wbs" && r.node.id === structure.id);
+    expect(row).toMatchObject({ expanded: false });
+    expect(rows.some((r) => r.kind === "task" && r.task.wbsId === structure.id)).toBe(false);
+  });
+
+  test("kinds read naturally: group row, then its flattened activities, then the next group", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, 1);
+    expect(kinds(rows)[0]).toBe("w:Riverside Office Building");
+    expect(kinds(rows).slice(1).every((k) => k.startsWith("t:"))).toBe(true);
+  });
+});
+
+describe("buildRows sorted by date", () => {
+  const xer = parseXer(sampleText);
+  const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const node = (name: string) => [...schedule.wbs.values()].find((n) => n.name === name)!;
+  const wbsRows = (rows: ReturnType<typeof buildRows>) => rows.filter((r) => r.kind === "wbs");
+  const taskRows = (rows: ReturnType<typeof buildRows>) => rows.filter((r) => r.kind === "task");
+  /** True if a list of dated things (nulls last) is in non-decreasing start-date order. */
+  const isDateOrdered = (items: Array<{ start: number | null }>) => {
+    const keys = items.map((x) => x.start ?? Infinity);
+    return keys.every((k, i) => i === 0 || keys[i - 1]! <= k);
+  };
+
+  test("with no sort argument, or \"code\", behaviour is exactly as before (the file's own order)", () => {
+    const noArg = buildRows(schedule.roots, new Set(), null);
+    expect(buildRows(schedule.roots, new Set(), null, null, "code")).toEqual(noArg);
+    // Structure's own children are seq-ordered, not date-ordered: Superstructure starts after Foundations but
+    // Foundations (the earlier one) is seq'd first either way, so this alone wouldn't catch a broken default —
+    // the equality check above, against the pre-existing (already extensively tested) unsorted behaviour, does.
+  });
+
+  test("level 2: the project's WBS groups are reordered by their own rolled-up start date", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, null, "date");
+    const level2 = wbsRows(rows).filter((r) => r.depth === 1);
+    expect(level2.length).toBeGreaterThan(3); // Pre-Construction, Site Works, Structure, Building Envelope, ...
+    expect(isDateOrdered(level2.map((r) => r.node))).toBe(true);
+    // Not already in that order in the file, so this is actually testing something.
+    const fileOrder = wbsRows(buildRows(schedule.roots, new Set(), null)).filter((r) => r.depth === 1);
+    expect(level2.map((r) => r.node.id)).not.toEqual(fileOrder.map((r) => r.node.id));
+  });
+
+  test("level 3: a group's own sub-groups are also reordered by date — the same rule applied one level deeper", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, null, "date");
+    const structureAt = rows.findIndex((r) => r.kind === "wbs" && r.node.id === node("Structure").id);
+    const nextAtOrAbove = rows.findIndex((r, i) => i > structureAt && r.kind === "wbs" && r.depth <= rows[structureAt]!.depth);
+    const withinStructure = rows.slice(structureAt + 1, nextAtOrAbove === -1 ? undefined : nextAtOrAbove);
+    const level3 = withinStructure.filter((r) => r.kind === "wbs" && r.depth === rows[structureAt]!.depth + 1);
+    expect(level3).toHaveLength(2); // Foundations, Superstructure
+    expect(isDateOrdered(level3.map((r) => (r as { node: { start: number | null } }).node))).toBe(true);
+    expect(level3[0]).toMatchObject({ node: { name: "Foundations" } }); // Foundations starts first in the sample
+  });
+
+  test("activities within a group are reordered by their own start date, not by activity code", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, null, "date");
+    const procurement = node("Permits & Procurement");
+    const at = rows.findIndex((r) => r.kind === "wbs" && r.node.id === procurement.id);
+    const tasks = taskRows(rows.slice(at + 1)).filter((r) => r.task.wbsId === procurement.id);
+    expect(tasks.length).toBeGreaterThan(1);
+    expect(isDateOrdered(tasks.map((r) => r.task))).toBe(true);
+    // PR1020 depends on the earliest-finishing design activity, so by date it comes before PR1010 despite its code.
+    expect(tasks.map((r) => r.task.code)).toEqual(["PR1000", "PR1020", "PR1010", "PR1030", "M0020"]);
+    const byCodeOrder = taskRows(buildRows(schedule.roots, new Set(), null)).filter((r) => r.task.wbsId === procurement.id);
+    expect(tasks.map((r) => r.task.code)).not.toEqual(byCodeOrder.map((r) => r.task.code)); // actually reordered
+  });
+
+  test("combined with a WBS depth limit, the flattened activities are sorted as one list, not per sub-group then concatenated", () => {
+    const rows = buildRows(schedule.roots, new Set(), null, 2, "date");
+    const structureAt = rows.findIndex((r) => r.kind === "wbs" && r.node.id === node("Structure").id);
+    const nextGroup = rows.findIndex((r, i) => i > structureAt && r.kind === "wbs");
+    const flattened = taskRows(rows.slice(structureAt + 1, nextGroup === -1 ? undefined : nextGroup));
+    expect(flattened.length).toBe(node("Structure").activityCount);
+    expect(isDateOrdered(flattened.map((r) => r.task))).toBe(true);
+  });
+
+  test("the roots themselves are reordered by date too (not just their children), and an undated one sorts last", () => {
+    // Deliberately the opposite of both file order and code order, so nothing here can pass by coincidence.
+    const late = { id: "late", code: "A", children: [], activities: [], start: d(2026, 6, 1) } as unknown as WbsNode;
+    const early = { id: "early", code: "B", children: [], activities: [], start: d(2026, 1, 1) } as unknown as WbsNode;
+    const undated = { id: "undated", code: "C", children: [], activities: [], start: null } as unknown as WbsNode;
+    const rows = buildRows([late, undated, early], new Set(), null, null, "date");
+    expect(rows.map((r) => (r as { node: { id: string } }).node.id)).toEqual(["early", "late", "undated"]);
+  });
+
+  test("filtering and date sorting combine: only matches are shown, still in date order, with correct counts", () => {
+    const predicate = makePredicate("all", "curtain")!; // PR1020, EN1010, EN1020
+    const rows = buildRows(schedule.roots, new Set(), predicate, null, "date");
+    const tasks = taskRows(rows);
+    expect(tasks.map((r) => r.task.code).sort()).toEqual(["EN1010", "EN1020", "PR1020"]);
+    expect(isDateOrdered(tasks.map((r) => r.task))).toBe(true);
   });
 });
 

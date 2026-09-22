@@ -9,8 +9,10 @@ import {
   buildRows,
   collapsibleIds,
   makePredicate,
+  maxWbsDepth,
   toDateRange,
   type ActivityFilter,
+  type ActivitySort,
   type DateMode,
   type Row,
 } from "../lib/scheduleRows";
@@ -23,30 +25,34 @@ import {
   type Timeline,
 } from "../lib/timeline";
 import { useVirtualRows } from "../lib/useVirtualRows";
+import { OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
 import { usePersistedBoolean } from "../state/usePersistedBoolean";
+import { usePersistedStrings } from "../state/usePersistedStrings";
 import { nonWorkingRuns } from "../lib/xer/calendar";
 import { isMilestone, type Activity, type Schedule as ScheduleModel, type WbsNode } from "../lib/xer/model";
 import { ActivityDetails } from "./ActivityDetails";
+import { ActivitySortSelect } from "./ActivitySortSelect";
+import { ColumnsMenu } from "./ColumnsMenu";
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
 import { FitViewButton } from "./FitViewButton";
-import { STATUS_DOT, Switch, buttonClass, inputClass, toggleClass } from "./ui";
+import { WbsLevelSelect } from "./WbsLevelSelect";
+import { LuChevronsDown, LuChevronsUp, LuMinus, LuPlus, LuPrinter, LuTarget } from "react-icons/lu";
+import { STATUS_DOT, Switch, buttonClass, iconButtonClass, inputClass, toggleClass } from "./ui";
 
 const ROW_H = 26;
 const HEADER_H = 44;
 
 const COLUMNS = [
-  { key: "orig", label: "Orig", w: 52 },
-  { key: "rem", label: "Rem", w: 52 },
-  { key: "start", label: "Start", w: 82 },
-  { key: "finish", label: "Finish", w: 82 },
-  { key: "tf", label: "TF", w: 50 },
+  { key: "orig", label: "Orig", title: "Original duration, in days", w: 52 },
+  { key: "rem", label: "Rem", title: "Remaining duration, in days", w: 52 },
+  { key: "start", label: "Start", title: "Actual start if it has one, otherwise the early (forecast) start date", w: 82 },
+  { key: "finish", label: "Finish", title: "Actual finish if it has one, otherwise the early (forecast) finish date", w: 82 },
+  { key: "tf", label: "TF", title: "Total float, in days: how long this can slip before it delays the project finish", w: 50 },
 ] as const;
 const FIXED_W = COLUMNS.reduce((n, c) => n + c.w, 0);
-
-// The activity-name column gets whatever the fixed columns leave over, so keep it usable.
-const LEFT_MIN = FIXED_W + 220;
-const LEFT_DEFAULT = FIXED_W + 380;
+// The vertical line between adjacent columns, in both the header and the rows.
+const colBorder = "border-l border-slate-100 dark:border-slate-800";
 
 /** Non-working shading is only useful (and cheap enough) once days are a few pixels wide. */
 const SHADING_MIN_PX_PER_DAY = 3;
@@ -73,6 +79,13 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const [dateMode, setDateMode] = useState<DateMode>("active");
   const [advanced, setAdvanced] = useState<AdvancedFilter>(EMPTY_FILTER);
   const [showBuilder, setShowBuilder] = useState(false);
+  // How many WBS levels get their own row; deeper levels are flattened into the deepest one shown, like P6's
+  // "Group by WBS" level setting. Null (the default) shows every level, as before.
+  const [wbsDepth, setWbsDepth] = useState<number | null>(null);
+  // How activities and WBS groups are ordered at every level; see ActivitySort. A preference, so — unlike
+  // wbsDepth — it is remembered and not reset per project, the same as Non-working or Groups.
+  const [sortByDate, setSortByDate] = usePersistedBoolean("xerview-sort-date", false);
+  const sortMode: ActivitySort = sortByDate ? "date" : "code";
   const [showLinks, setShowLinks] = useState(false);
   // A preference, so it is remembered: turning it on once should not need repeating after every reload.
   const [showNonWorking, setShowNonWorking] = usePersistedBoolean("xerview-show-non-working", false);
@@ -87,9 +100,22 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   // While a PDF is being built: how many pages are done. Null when idle.
   const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
-  const [leftW, setLeftW] = useState(() =>
-    Math.max(LEFT_MIN, Math.min(LEFT_DEFAULT, Math.round(window.innerWidth * 0.45))),
-  );
+  // Optional columns beyond the fixed five, switched on from the Columns menu. A preference, so it is remembered
+  // and not reset per project (like the theme, not like a filter).
+  const [enabledColumns, setEnabledColumns] = usePersistedStrings("xerview-columns", []);
+  const activeColumns = useMemo(() => OPTIONAL_COLUMNS.filter((c) => enabledColumns.includes(c.key)), [enabledColumns]);
+  // How much of the left panel the fixed and optional columns need; whatever is left goes to the activity name.
+  const fixedW = FIXED_W + activeColumns.reduce((n, c) => n + c.width, 0);
+  const leftMin = fixedW + 220;
+  const leftDefault = fixedW + 380;
+  const [leftW, setLeftW] = useState(() => Math.max(leftMin, Math.min(leftDefault, Math.round(window.innerWidth * 0.45))));
+
+  // Turning a column on can otherwise crowd out the activity name; widen the panel to keep the same minimum room
+  // for it as everywhere else (leftMin). Never shrinks it back when a column is turned off — that would undo a
+  // resize the user chose on purpose.
+  useEffect(() => {
+    setLeftW((w) => Math.max(w, leftMin));
+  }, [leftMin]);
 
   // A different project starts from a clean slate.
   useEffect(() => {
@@ -101,6 +127,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     setDateTo("");
     setAdvanced(EMPTY_FILTER);
     setZoom(null);
+    setWbsDepth(null);
   }, [schedule]);
 
   const dateRange = useMemo(() => toDateRange(dateFrom, dateTo, dateMode), [dateFrom, dateTo, dateMode]);
@@ -125,7 +152,11 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     },
     [predicate],
   );
-  const rows = useMemo(() => buildRows(schedule.roots, collapsed, predicate), [schedule, collapsed, predicate]);
+  const rows = useMemo(
+    () => buildRows(schedule.roots, collapsed, predicate, wbsDepth, sortMode),
+    [schedule, collapsed, predicate, wbsDepth, sortMode],
+  );
+  const wbsLevels = useMemo(() => maxWbsDepth(schedule.roots), [schedule]);
   const virtual = useVirtualRows({ count: rows.length, rowHeight: ROW_H });
   const { scrollToIndex } = virtual;
 
@@ -295,8 +326,8 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   };
   const onResizeMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
-    const max = Math.max(LEFT_MIN, (virtual.viewWidth || 1200) - 160);
-    setLeftW(Math.min(max, Math.max(LEFT_MIN, drag.current.w + e.clientX - drag.current.x)));
+    const max = Math.max(leftMin, (virtual.viewWidth || 1200) - 160);
+    setLeftW(Math.min(max, Math.max(leftMin, drag.current.w + e.clientX - drag.current.x)));
   };
   const onResizeUp = () => {
     drag.current = null;
@@ -321,7 +352,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     }
   };
 
-  const treeW = leftW - FIXED_W;
+  const treeW = leftW - fixedW;
   const visible = rows.slice(virtual.start, virtual.end);
   // Counted from the data, not the rows, so collapsing a group doesn't change how many activities match.
   const matchCount = useMemo(
@@ -419,10 +450,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 : "Save what is shown (with the current filters) as a PDF on A3 paper, landscape"
             }
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2" />
-              <rect x="6" y="14" width="12" height="7" rx="1" />
-            </svg>
+            <LuPrinter size={14} aria-hidden />
             {pdfProgress ? `Page ${Math.min(pdfProgress.done + 1, pdfProgress.total)} of ${pdfProgress.total}…` : "PDF"}
           </button>
           {pdfError && (
@@ -437,17 +465,31 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
         {/* Row 2: how to show it */}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex gap-1">
-            <button type="button" className={buttonClass} onClick={() => updateCollapsed(() => NO_GROUPS)}>
-              Expand all
+            <button
+              type="button"
+              className={iconButtonClass}
+              onClick={() => updateCollapsed(() => NO_GROUPS)}
+              aria-label="Expand all groups"
+              title="Expand all groups"
+            >
+              <LuChevronsDown size={18} aria-hidden />
             </button>
             <button
               type="button"
-              className={buttonClass}
+              className={iconButtonClass}
               onClick={() => updateCollapsed(() => new Set(collapsibleIds(schedule.roots)))}
+              aria-label="Collapse all groups"
+              title="Collapse all groups"
             >
-              Collapse all
+              <LuChevronsUp size={18} aria-hidden />
             </button>
           </div>
+          {wbsLevels > 1 && <WbsLevelSelect levels={wbsLevels} value={wbsDepth ?? wbsLevels} onChange={setWbsDepth} />}
+          <ActivitySortSelect value={sortMode} onChange={(s) => setSortByDate(s === "date")} />
+          <ColumnsMenu
+            enabled={enabledColumns}
+            onToggle={(key, on) => setEnabledColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key)))}
+          />
           <span aria-hidden className="h-5 w-px bg-slate-300 dark:bg-slate-700" />
           <div className="flex items-center gap-3">
             <Switch
@@ -489,8 +531,8 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
           <div className="ml-auto flex items-center gap-3">
             <Legend links={links !== null} shading={shading.length > 0} today={todayInView} />
             <div className="flex gap-1">
-              <button type="button" className={`${buttonClass} w-8 px-0`} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
-                −
+              <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
+                <LuMinus size={18} aria-hidden />
               </button>
               <FitViewButton
                 hasRange={activeRange !== null}
@@ -498,22 +540,18 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 onFitProject={() => setZoom(null)}
                 onFitDates={fitToDates}
               />
-              <button type="button" className={`${buttonClass} w-8 px-0`} aria-label="Zoom in" onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
-                +
+              <button type="button" className={iconButtonClass} aria-label="Zoom in" onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
+                <LuPlus size={18} aria-hidden />
               </button>
               <button
                 type="button"
-                className={`${buttonClass} w-8 px-0`}
+                className={iconButtonClass}
                 onClick={scrollToDataDate}
                 disabled={dataDate === null}
                 aria-label="Go to data date"
                 title={dataDate === null ? "This project has no data date" : "Go to the data date"}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                  <circle cx="12" cy="12" r="7" />
-                  <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-                </svg>
+                <LuTarget size={18} aria-hidden />
               </button>
             </div>
           </div>
@@ -535,11 +573,26 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               className="sticky left-0 z-30 flex shrink-0 items-end border-r border-slate-300 bg-slate-100 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
               style={{ width: leftW }}
             >
-              <div className="min-w-0 flex-1 truncate px-3 pb-1.5" style={{ width: treeW }}>
+              <div className="min-w-0 flex-1 truncate px-3 pb-1.5" style={{ width: treeW }} title="Activity code and name">
                 Activity
               </div>
               {COLUMNS.map((c) => (
-                <div key={c.key} className={`shrink-0 px-1 pb-1.5 ${c.key === "start" || c.key === "finish" ? "text-left" : "text-right"}`} style={{ width: c.w }}>
+                <div
+                  key={c.key}
+                  className={`shrink-0 px-1 pb-1.5 ${colBorder} ${c.key === "start" || c.key === "finish" ? "text-left" : "text-right"}`}
+                  style={{ width: c.w }}
+                  title={c.title}
+                >
+                  {c.label}
+                </div>
+              ))}
+              {activeColumns.map((c) => (
+                <div
+                  key={c.key}
+                  className={`shrink-0 px-1 pb-1.5 ${colBorder} ${c.align === "right" ? "text-right" : "text-left"}`}
+                  style={{ width: c.width }}
+                  title={c.title}
+                >
                   {c.label}
                 </div>
               ))}
@@ -639,6 +692,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 timeline={timeline}
                 dataDate={dataDate}
                 selected={row.kind === "task" && row.task.id === selectedId}
+                columns={activeColumns}
                 onToggle={toggle}
                 onSelect={onSelect}
               />
@@ -714,11 +768,12 @@ interface RowProps {
   timeline: Timeline;
   dataDate: number | null;
   selected: boolean;
+  columns: OptionalColumn[];
   onToggle: (id: string) => void;
   onSelect: (id: string | null) => void;
 }
 
-function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, onToggle, onSelect }: RowProps) {
+function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, columns, onToggle, onSelect }: RowProps) {
   const isWbs = row.kind === "wbs";
   const bg = selected
     ? "bg-accent-50 dark:bg-accent-950"
@@ -738,7 +793,7 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
       aria-selected={selected || undefined}
     >
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
-        {isWbs ? <WbsCells row={row} treeW={treeW} /> : <TaskCells task={row.task} depth={row.depth} treeW={treeW} />}
+        {isWbs ? <WbsCells row={row} treeW={treeW} columns={columns} /> : <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} />}
       </div>
       <div className="relative shrink-0 overflow-hidden" style={{ width: timeline.width }}>
         {isWbs ? <SummaryBar node={row.node} timeline={timeline} /> : <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} />}
@@ -747,9 +802,9 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
   );
 }
 
-const numCell = "shrink-0 px-1 tabular-nums";
+const numCell = "shrink-0 truncate px-1 tabular-nums";
 
-function WbsCells({ row, treeW }: { row: Extract<Row, { kind: "wbs" }>; treeW: number }) {
+function WbsCells({ row, treeW, columns }: { row: Extract<Row, { kind: "wbs" }>; treeW: number; columns: OptionalColumn[] }) {
   const { node } = row;
   return (
     <>
@@ -765,19 +820,22 @@ function WbsCells({ row, treeW }: { row: Extract<Row, { kind: "wbs" }>; treeW: n
           {fmtInt(row.matches ?? node.activityCount)}
         </span>
       </div>
-      <div className={numCell} style={{ width: COLUMNS[0].w + COLUMNS[1].w }} />
-      <div className={numCell} style={{ width: COLUMNS[2].w }}>
+      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[0].w + COLUMNS[1].w }} />
+      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[2].w }}>
         {fmtDate(node.start)}
       </div>
-      <div className={numCell} style={{ width: COLUMNS[3].w }}>
+      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[3].w }}>
         {fmtDate(node.finish)}
       </div>
-      <div className={numCell} style={{ width: COLUMNS[4].w }} />
+      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[4].w }} />
+      {columns.map((c) => (
+        <div key={c.key} className={`${numCell} ${colBorder}`} style={{ width: c.width }} />
+      ))}
     </>
   );
 }
 
-function TaskCells({ task, depth, treeW }: { task: Activity; depth: number; treeW: number }) {
+function TaskCells({ task, depth, treeW, columns }: { task: Activity; depth: number; treeW: number; columns: OptionalColumn[] }) {
   const float = task.status === "completed" ? "" : fmtDays(task.totalFloatHrs, task.dayHrs);
   return (
     <>
@@ -788,24 +846,29 @@ function TaskCells({ task, depth, treeW }: { task: Activity; depth: number; tree
           {task.name}
         </span>
       </div>
-      <div className={`${numCell} text-right`} style={{ width: COLUMNS[0].w }}>
+      <div className={`${numCell} ${colBorder} text-right`} style={{ width: COLUMNS[0].w }}>
         {fmtDays(task.origDurHrs, task.dayHrs)}
       </div>
-      <div className={`${numCell} text-right`} style={{ width: COLUMNS[1].w }}>
+      <div className={`${numCell} ${colBorder} text-right`} style={{ width: COLUMNS[1].w }}>
         {fmtDays(task.remDurHrs, task.dayHrs)}
       </div>
-      <div className={numCell} style={{ width: COLUMNS[2].w }}>
+      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[2].w }}>
         {fmtDate(task.start)}
       </div>
-      <div className={numCell} style={{ width: COLUMNS[3].w }}>
+      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[3].w }}>
         {fmtDate(task.finish)}
       </div>
       <div
-        className={`${numCell} text-right ${task.critical ? "font-medium text-red-600 dark:text-red-400" : ""}`}
+        className={`${numCell} ${colBorder} text-right ${task.critical ? "font-medium text-red-600 dark:text-red-400" : ""}`}
         style={{ width: COLUMNS[4].w }}
       >
         {float}
       </div>
+      {columns.map((c) => (
+        <div key={c.key} className={`${numCell} ${colBorder} ${c.align === "right" ? "text-right" : ""}`} style={{ width: c.width }}>
+          {optionalColumnValue(c.key, task)}
+        </div>
+      ))}
     </>
   );
 }

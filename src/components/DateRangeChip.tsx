@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { LuCalendarDays, LuChevronDown } from "react-icons/lu";
 import { DATE_MODE_LABEL, describeDateRange, type DateMode } from "../lib/scheduleRows";
 import { buttonClass, inputClass, toggleClass } from "./ui";
 
@@ -17,8 +18,6 @@ interface Props {
   onMode: (m: DateMode) => void;
   onClear: () => void;
 }
-
-const icon = { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
 
 /** A button that shows the current date range and opens a small panel to change it. */
 export function DateRangeChip({ from, to, mode, invalid, onFrom, onTo, onMode, onClear }: Props) {
@@ -58,14 +57,9 @@ export function DateRangeChip({ from, to, mode, invalid, onFrom, onTo, onMode, o
         title="Show only activities in a date range"
         className={`${toggleClass(open || isSet)} max-w-64 gap-1.5 ${invalid ? "!border-red-500 !text-red-700 dark:!text-red-300" : ""}`}
       >
-        <svg {...icon}>
-          <rect x="3" y="5" width="18" height="16" rx="2" />
-          <path d="M16 3v4M8 3v4M3 11h18" />
-        </svg>
+        <LuCalendarDays size={14} aria-hidden />
         <span className="truncate">{invalid ? "From is after To" : describeDateRange(from, to)}</span>
-        <svg {...icon}>
-          <path d="m6 9 6 6 6-6" />
-        </svg>
+        <LuChevronDown size={14} aria-hidden />
       </button>
 
       {open && (

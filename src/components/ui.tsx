@@ -99,3 +99,21 @@ export const buttonClass =
   "font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 " +
   "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:disabled:hover:bg-slate-900";
+
+/**
+ * A square icon-only button (Expand all, zoom, the theme picker, and so on). Bakes in its own width and has no
+ * horizontal padding at all, rather than trying to cancel buttonClass's `px-2.5` with a trailing `px-0` — that only
+ * wins by luck of which order Tailwind happens to generate the two utilities in, not by where it sits in the class
+ * list, and here it was losing: the icon was sitting in a box with 10px of dead padding still on each side.
+ */
+export const iconButtonClass =
+  "inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 " +
+  "disabled:opacity-40 disabled:hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 " +
+  "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:disabled:hover:bg-slate-900";
+
+/** Same, but highlighted while "on" (the Columns button, once something extra is switched on). */
+export const iconToggleClass = (on: boolean) =>
+  "inline-flex h-8 w-8 items-center justify-center rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 disabled:opacity-40 " +
+  (on
+    ? "border-accent-500 bg-accent-50 text-accent-700 hover:bg-accent-100 dark:border-accent-500 dark:bg-accent-950 dark:text-accent-300 dark:hover:bg-accent-900"
+    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800");

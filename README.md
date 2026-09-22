@@ -3,10 +3,12 @@
 A browser-based viewer for Primavera P6 `.xer` exports. Everything runs client-side: the file is read and parsed in
 the browser and never leaves your machine, so there is no backend.
 
-**Stack:** Bun · React 19 · Tailwind CSS 4 · TypeScript
+**Stack:** Bun · React 19 · Tailwind CSS 4 · TypeScript · [react-icons](https://react-icons.github.io/react-icons/) (Lucide set) for toolbar icons
 
 ## Features
 
+- **Resizable panels** – drag the table's right edge, or the top edge of the activity details panel underneath
+  the schedule, to resize either one. Both sizes are remembered between visits.
 - **Overview** – project dates, progress, critical count, schedule-health checks (open ends, relationship mix),
   next critical activities, file metadata and a table inventory.
 - **Schedule** – WBS-grouped activity table with a synchronized Gantt chart: actual/remaining split at the data
@@ -28,6 +30,22 @@ the browser and never leaves your machine, so there is no backend.
     separate from the solid orange data date. It is included in the PDF while the switch is on.
   - **Non-working time** – switch **Non-working** on (it is remembered) to shade weekends and holidays from the project's default calendar
     with a tint darker than the grid lines, when zoomed in.
+  - **Columns** – the columns icon (next to Expand/Collapse all) adds any of four extra columns beyond the fixed
+    Orig / Rem / Start / Finish / TF: % Complete, Actual Start, Actual Finish and Free Float. Each is switched on
+    independently and remembered between visits; the icon is highlighted while any are on. Activity ID and
+    Calendar aren't offered, since their values run too long to fit one line. A faint vertical line separates every
+    column, fixed and extra alike, and every header has a tooltip explaining it.
+  - **Sort order** – **By code** (the default) is the file's own order: WBS groups as arranged in the project,
+    activities by activity code. **By date** reorders every level instead — WBS groups by their own rolled-up
+    start date, activities by their own start date — applied recursively, so a date-sorted group's own sub-groups
+    are themselves in date order, all the way down. Remembered between visits, like Non-working and Groups; unlike
+    the WBS depth control, it does not reset for a new project.
+  - **WBS grouping depth** – choose how many WBS levels get their own row (**WBS level 1**, **2**, … ), similar
+    to P6's "Group by WBS" level setting. Activities below the chosen level are listed directly under the deepest
+    group shown, with no rows for the levels folded away; group dates, activity counts and filter match counts
+    still cover the whole branch. It opens as a menu below the button rather than a native dropdown, so it never
+    flips upward. Only shown when the file's WBS is more than one level deep, and resets to the file's deepest
+    level (showing everything) for a new project.
   - **Filter builder** – the **Filters** button opens a panel where you combine any number of conditions
     (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
     they read: **Activity codes** (Activity ID, Activity Code, Activity Name, Activity Type ID, Activity Type Name),

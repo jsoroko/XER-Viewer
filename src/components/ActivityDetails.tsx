@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { fmtDateTime, fmtDays, fmtMoney, fmtNumber } from "../lib/format";
 import { holidayCount, summarizeWeek, workingDaysBetween } from "../lib/xer/calendar";
 import { isMilestone, wbsPath, type Activity, type Relationship, type Schedule } from "../lib/xer/model";
@@ -10,6 +10,7 @@ import {
   TASK_TYPE_LABEL,
 } from "../lib/xer/values";
 import { StatusBadge } from "./ui";
+import { usePersistedNumber } from "../state/usePersistedNumber";
 
 interface Props {
   schedule: Schedule;
@@ -19,6 +20,10 @@ interface Props {
 }
 
 type DetailTab = "general" | "relationships" | "resources" | "codes";
+
+/** h-72, the panel's original fixed height, kept as the default so existing visitors see no change. */
+const DEFAULT_DETAIL_H = 288;
+const MIN_DETAIL_H = 160;
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -31,7 +36,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
+    <section className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
       <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</h3>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2">{children}</dl>
     </section>
@@ -187,6 +192,23 @@ function RelationshipTable({
 
 export function ActivityDetails({ schedule, activity: a, onSelect, onClose }: Props) {
   const [tab, setTab] = useState<DetailTab>("general");
+  // Remembered across visits and across activities, like the table's own width.
+  const [height, setHeight] = usePersistedNumber("xerview-detail-height", DEFAULT_DETAIL_H);
+  const drag = useRef<{ y: number; h: number } | null>(null);
+
+  const onResizeDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { y: e.clientY, h: height };
+  };
+  const onResizeMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    const max = Math.max(MIN_DETAIL_H, window.innerHeight * 0.7);
+    // Dragging the top edge up should grow the panel, so the delta is start Y minus current Y, not the other way round.
+    setHeight(Math.min(max, Math.max(MIN_DETAIL_H, drag.current.h + (drag.current.y - e.clientY))));
+  };
+  const onResizeUp = () => {
+    drag.current = null;
+  };
   const preds = schedule.predecessors.get(a.id) ?? [];
   const succs = schedule.successors.get(a.id) ?? [];
   const assigns = schedule.assignments.get(a.id) ?? [];
@@ -203,7 +225,16 @@ export function ActivityDetails({ schedule, activity: a, onSelect, onClose }: Pr
     assigns.reduce((n, x) => n + (pick(x) ?? 0), 0);
 
   return (
-    <div className="flex h-72 shrink-0 flex-col border-t border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900">
+    <div className="relative flex shrink-0 flex-col border-t border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900" style={{ height }}>
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize activity details"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeUp}
+        className="absolute inset-x-0 top-0 h-1.5 -translate-y-1/2 cursor-row-resize touch-none hover:bg-accent-500/40"
+      />
       <div className="flex items-center gap-1 border-b border-slate-200 px-3 dark:border-slate-800">
         <div className="mr-3 flex min-w-0 items-baseline gap-2 py-2">
           <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{a.code}</span>
