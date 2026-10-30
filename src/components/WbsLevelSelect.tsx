@@ -5,7 +5,7 @@ import { buttonClass } from "./ui";
 interface Props {
   /** How many levels this file's WBS actually has; the caller only renders this when it's more than 1. */
   levels: number;
-  /** The level currently shown as its own rows. The deepest level shows the whole tree, the same as no limit. */
+  /** The level currently shown as its own rows (0 = no groups, just activities). The deepest level shows the whole tree, the same as no limit. */
   value: number;
   onChange: (level: number) => void;
 }
@@ -50,7 +50,7 @@ export function WbsLevelSelect({ levels, value, onChange }: Props) {
         onClick={() => setOpen((v) => !v)}
         title="Show WBS groups down to this level; everything below is listed directly under the deepest group shown, like P6's 'Group by WBS' level setting"
       >
-        WBS level {value}
+        {value === 0 ? "No groups" : `WBS level ${value}`}
         <LuChevronDown size={14} aria-hidden />
       </button>
 
@@ -60,7 +60,7 @@ export function WbsLevelSelect({ levels, value, onChange }: Props) {
           aria-label="WBS grouping depth"
           className="absolute left-0 top-full z-50 mt-1 max-h-72 w-36 space-y-0.5 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          {Array.from({ length: levels }, (_, i) => i + 1).map((n) => (
+          {Array.from({ length: levels + 1 }, (_, i) => i).map((n) => (
             <button
               key={n}
               type="button"
@@ -72,7 +72,7 @@ export function WbsLevelSelect({ levels, value, onChange }: Props) {
                 setOpen(false);
               }}
             >
-              WBS level {n}
+              {n === 0 ? "No groups" : `WBS level ${n}`}
             </button>
           ))}
         </div>

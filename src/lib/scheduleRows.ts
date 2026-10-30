@@ -179,7 +179,8 @@ function flattenActivities(node: WbsNode, sort: ActivitySort): Activity[] {
  * setting (the roots are level 1). Once that many levels have been shown, every activity still below
  * is listed directly under the deepest group shown, with no further group rows in between. Group
  * dates, activity counts and match counts are unaffected: they still cover the whole branch. Null
- * (the default) shows every level, as before.
+ * (the default) shows every level, as before. 0 shows no group rows at all: just the activities, in one flat list
+ * (in "code" order that is each branch in turn; in "date" order the whole list is sorted together).
  *
  * `sort` chooses the order of siblings at every level; see `ActivitySort`. Defaults to "code", today's behaviour.
  */
@@ -203,6 +204,13 @@ export function buildRows(
   }
 
   const out: Row[] = [];
+  if (wbsDepth === 0) {
+    const all = sortedChildren(roots, sort).flatMap((r) => flattenActivities(r, sort));
+    for (const task of sort === "date" ? all.sort(byDate) : all) {
+      if (!predicate || predicate(task)) out.push({ kind: "task", key: `t${task.id}`, task, depth: 0 });
+    }
+    return out;
+  }
   const visit = (node: WbsNode, depth: number) => {
     const found = predicate ? (matches.get(node.id) ?? 0) : undefined;
     if (found === 0) return;

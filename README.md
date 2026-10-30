@@ -37,8 +37,12 @@ the browser and never leaves your machine, so there is no backend.
     works for any activity in any exported file.
   - **Date range filter** – the **Dates** button (it shows the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
-    scrolled into view. **Fit View** fits the whole project; once a range is set it opens a menu offering *Project
-    Duration* or *Selected Dates*. Selected Dates zooms the chart to the range with one tick of the timescale as
+    scrolled into view. **Fit View** fits the whole project; once a range is set, or a search, filter or trace leaves
+    rows covering less than the whole project, it opens a menu offering *Project Duration*, *Selected Dates*,
+    *Visible Rows* (the period everything on screen covers, group rows included) and *Visible Activities* (just
+    the activities, offered when the group rows above them reach further, which they do whenever a filter or
+    trace removes most of a branch; group bars then run off the edges). The chart always keeps a fixed margin of empty space at each end, and a bar's
+    label moves to its left when it would run past the right edge. Selected Dates zooms the chart to the range with one tick of the timescale as
     margin either side: 3 days when the chart shows days, a week for weeks, a month for months, a
     quarter for quarters. The margin is measured in whichever timescale the chart ends up showing. A range with only
     one end set runs to the project's own start or finish on the other side.
@@ -60,7 +64,8 @@ the browser and never leaves your machine, so there is no backend.
     to P6's "Group by WBS" level setting. Activities below the chosen level are listed directly under the deepest
     group shown, with no rows for the levels folded away; group dates, activity counts and filter match counts
     still cover the whole branch. It opens as a menu below the button rather than a native dropdown, so it never
-    flips upward. Only shown when the file's WBS is more than one level deep, and resets to the file's deepest
+    flips upward. The first choice, **No groups**, drops every group row and lists just the activities in one flat list (by
+    date, the whole list is sorted together), which suits a trace or search whose results are scattered. Resets to the file's deepest
     level (showing everything) for a new project.
   - **Filter builder** – the **Filters** button opens a panel where you combine any number of conditions
     (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
@@ -73,12 +78,26 @@ the browser and never leaves your machine, so there is no backend.
     missing a value are ignored until you fill them in, and the builder combines with the search box, the status /
     critical / milestone dropdown and the date range, which cover status and dates.
   - **Print to PDF** – the **PDF** button makes an A3 landscape sheet of exactly what is on screen: the same rows
-    (so the search, status, date-range and filter-builder results, and any collapsed groups), the Gantt bars fitted
-    to the printed activities, and a header line saying which filters are applied. It is built in the browser and
-    downloaded as `<project>_<date>.pdf`; nothing is uploaded. Long schedules run over as many pages as needed
-    (you are asked to confirm above 100 pages). Characters outside the PDF's built-in fonts (e.g. Chinese or
-    Cyrillic) print as `?`, and dependency lines and non-working shading are not drawn. The PDF library is loaded
-    only when you press the button, as its own chunk, so it does not slow the first page load.
+    (so the search, status, date-range and filter-builder results, the sort order, the WBS depth and any collapsed
+    groups), the Gantt bars fitted to the printed activities, and a header line saying which filters are applied.
+    It also carries the other view settings:
+    - **Extra columns** – any of the optional columns switched on (% Complete, Actual Start, Actual Finish, Free
+      Float) print after TF, with shorter headings; the chart gets correspondingly narrower.
+    - **Non-working time** – with the switch on, weekends and holidays are shaded on the chart, with a legend entry.
+      As on screen, it is left out when the printed span is so long that a day would be under a point wide.
+    - **Rows and chart ends** – the PDF prints the rows as listed, so **No groups** and the WBS level are honoured.
+      The chart is sized to the activities printed (as Visible Activities does on screen), with a margin at each end,
+      and a label that would run off the right edge moves to the left of its bar.
+    - **Today** – the dashed line, as before.
+    - **Traced path** – a driving-logic trace is printed as on screen: its rows tinted, its bars outlined, its links
+      drawn and everything else faded, with the trace named in the header ("Path only" when that switch is on). A
+      link that runs across a page break is left out; both ends have to be on the same page.
+
+    It is built in the browser and downloaded as `<project>_<date>.pdf`; nothing is uploaded. Long schedules run over
+    as many pages as needed (you are asked to confirm above 100 pages). Characters outside the PDF's built-in fonts
+    (e.g. Chinese or Cyrillic) print as `?`, and the selected activity's own predecessor/successor lines (the Links
+    switch) are not drawn. The PDF library is loaded only when you press the button, as its own chunk, so it does not
+    slow the first page load.
 - **Calendars** – the Overview lists the calendars the project uses (work week, hours/day, holidays, activity
   count); activity details show the calendar's work week and the number of working days the activity spans.
 - **Tables** – browse every raw table in the file with search, column sorting and CSV export.
@@ -120,7 +139,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/links.ts` | Orthogonal routing for the dependency lines (and the traced path's links) |
 | `src/lib/drivingPath.ts`, `traceCsv.ts` | Driving-logic tracing (backward / forward / combined / between two activities), its step list and CSV |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
-| `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary |
+| `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file; load / restore / close flow |
 | `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, TablesView |
 | `scripts/generate-sample.ts` | Regenerates `src/sample/sample.xer` (`bun run sample`) |

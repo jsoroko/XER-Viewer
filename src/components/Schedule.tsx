@@ -59,6 +59,8 @@ const colBorder = "border-l border-slate-100 dark:border-slate-800";
 
 /** Non-working shading is only useful (and cheap enough) once days are a few pixels wide. */
 const SHADING_MIN_PX_PER_DAY = 3;
+/** Empty space kept at each end of the chart. */
+const CHART_MARGIN_PX = 24;
 
 const NO_GROUPS: ReadonlySet<string> = new Set();
 
@@ -187,12 +189,16 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const extent = useMemo(() => paddedRange(schedule.range), [schedule]);
   const spanDays = (extent.end - extent.start) / 86_400_000;
   const ganttViewW = Math.max(200, (virtual.viewWidth || 900) - leftW - 16);
-  const fitPx = clampPx(ganttViewW / spanDays);
+  const fitPx = clampPx((ganttViewW - 2 * CHART_MARGIN_PX) / spanDays);
   const pxPerDay = zoom ?? fitPx;
-  const timeline = useMemo(() => makeTimeline(extent.start, extent.end, pxPerDay), [extent, pxPerDay]);
+  // A fixed margin (in pixels, so a fixed look at any zoom) either side, so bars, labels and outlines at the ends aren't clipped.
+  const timeline = useMemo(() => {
+    const pad = (CHART_MARGIN_PX / pxPerDay) * 86_400_000;
+    return makeTimeline(extent.start - pad, extent.end + pad, pxPerDay);
+  }, [extent, pxPerDay]);
   const ticks = useMemo(() => buildTicks(timeline), [timeline]);
   const totalW = leftW + timeline.width;
-  const todayInView = showToday && today >= extent.start && today <= extent.end;
+  const todayInView = showToday && today >= timeline.start && today <= timeline.end;
   const dataDate = schedule.project.dataDate;
 
   // ---- Selection: reveal, then scroll into view -------------------------------
@@ -279,11 +285,11 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
 
   // ---- Non-working time (from the project's default calendar) ----------------------
   const pattern = schedule.defaultCalendar?.pattern ?? null;
-  const nonWorking = useMemo(
-    () => (pattern ? nonWorkingRuns(pattern, extent.start, extent.end) : []),
-    [pattern, extent],
+  const shadingOn = showNonWorking && pxPerDay >= SHADING_MIN_PX_PER_DAY;
+  const shading = useMemo(
+    () => (pattern && shadingOn ? nonWorkingRuns(pattern, timeline.start, timeline.end) : []),
+    [pattern, shadingOn, timeline],
   );
-  const shading = showNonWorking && pxPerDay >= SHADING_MIN_PX_PER_DAY ? nonWorking : [];
 
   const toggle = useCallback(
     (id: string) => {
@@ -317,15 +323,37 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRange]);
 
-  const fitToDates = () => {
-    if (!activeRange) return;
-    // A range with one end open runs to the project's own start or finish on that side.
-    const from = activeRange.from ?? schedule.range?.start ?? extent.start;
-    const to = Math.max(activeRange.to ?? schedule.range?.finish ?? extent.end, from + 86_400_000);
-    const fit = fitToRange(from, to, ganttViewW);
+  const fitTo = (from: number, to: number) => {
+    const fit = fitToRange(from, Math.max(to, from + 86_400_000), ganttViewW);
     setZoom(fit.pxPerDay);
     setFitRequest({ start: fit.start });
   };
+  const fitToDates = () => {
+    if (!activeRange) return;
+    // A range with one end open runs to the project's own start or finish on that side.
+    fitTo(activeRange.from ?? schedule.range?.start ?? extent.start, activeRange.to ?? schedule.range?.finish ?? extent.end);
+  };
+
+  // The period the rows on screen cover, with and without the group rows (whose dates cover their whole branch, which
+  // a filter may have mostly removed). Each is offered by Fit View only when it differs from the whole project's.
+  const spanOf = (tasksOnly: boolean) => {
+    let start = Infinity;
+    let finish = -Infinity;
+    for (const r of rows) {
+      if (tasksOnly && r.kind !== "task") continue;
+      const n = r.kind === "task" ? r.task : r.node;
+      if (n.start !== null && n.start < start) start = n.start;
+      if (n.finish !== null && n.finish > finish) finish = n.finish;
+    }
+    return start <= finish ? { start, finish } : null;
+  };
+  const rowsSpan = useMemo(() => spanOf(false), [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const activitiesSpan = useMemo(() => spanOf(true), [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const differs = (span: { start: number; finish: number } | null, other = schedule.range) =>
+    span !== null && (!other || span.start > other.start + 86_400_000 || span.finish < other.finish - 86_400_000);
+  const rowsDiffer = differs(rowsSpan);
+  // Only worth a separate entry when there are group rows and they stretch the period beyond the activities.
+  const activitiesDiffer = differs(activitiesSpan) && differs(activitiesSpan, rowsSpan);
 
   // Scroll once the new zoom is on screen (in the same render, so the timeline here already has it).
   useEffect(() => {
@@ -384,7 +412,20 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     setPdfProgress({ done: 0, total: pages });
     try {
       const { blob } = await buildPdf(
-        { schedule, rows, filters, matched: matchCount, total: schedule.stats.activities, today: showToday ? today : null },
+        {
+          schedule,
+          rows,
+          filters,
+          matched: matchCount,
+          total: schedule.stats.activities,
+          today: showToday ? today : null,
+          columns: enabledColumns,
+          shadeNonWorking: showNonWorking && pattern !== null,
+          trace:
+            trace && traceResult && traceIds
+              ? { label: describeTrace(schedule, trace, traceResult), ids: traceIds, links: traceResult.links.map((l) => l.rel) }
+              : null,
+        },
         { onProgress: (done, total) => setPdfProgress({ done, total }) },
       );
       downloadBlob(safeFileName(schedule.project.name), blob);
@@ -527,7 +568,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               <LuChevronsUp size={18} aria-hidden />
             </button>
           </div>
-          {wbsLevels > 1 && <WbsLevelSelect levels={wbsLevels} value={wbsDepth ?? wbsLevels} onChange={setWbsDepth} />}
+          {wbsLevels > 0 && <WbsLevelSelect levels={wbsLevels} value={wbsDepth ?? wbsLevels} onChange={setWbsDepth} />}
           <ActivitySortSelect value={sortMode} onChange={(s) => setSortByDate(s === "date")} />
           <ColumnsMenu
             enabled={enabledColumns}
@@ -588,9 +629,13 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               </button>
               <FitViewButton
                 hasRange={activeRange !== null}
+                hasRows={rowsDiffer}
+                hasActivities={activitiesDiffer}
                 fitted={zoom === null}
                 onFitProject={() => setZoom(null)}
                 onFitDates={fitToDates}
+                onFitRows={() => rowsSpan && fitTo(rowsSpan.start, rowsSpan.finish)}
+                onFitActivities={() => activitiesSpan && fitTo(activitiesSpan.start, activitiesSpan.finish)}
               />
               <button type="button" className={iconButtonClass} aria-label="Zoom in" onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
                 <LuPlus size={18} aria-hidden />
@@ -978,7 +1023,7 @@ function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline:
     return (
       <>
         <div className={`absolute size-2.5 rotate-45 ${color} ${ring}`} style={{ left: x - 5, top: (ROW_H - 10) / 2 }} title={title} />
-        <BarLabel x={x + 9} text={task.name} />
+        <BarLabel x={x + 9} flipX={x - 9} edge={timeline.width} text={task.name} />
       </>
     );
   }
@@ -990,7 +1035,7 @@ function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline:
     return (
       <>
         <div className={`absolute h-1.5 rounded-sm bg-teal-500 ${ring}`} style={{ left: x1, width: x2 - x1, top: (ROW_H - 6) / 2 }} title={title} />
-        <BarLabel x={x2 + 6} text={task.name} />
+        <BarLabel x={x2 + 6} flipX={x1 - 6} edge={timeline.width} text={task.name} />
       </>
     );
   }
@@ -1011,14 +1056,22 @@ function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline:
         <div className={actualColor} style={{ width: split - x1 }} />
         <div className={`${remainingColor} flex-1`} />
       </div>
-      <BarLabel x={x2 + 6} text={task.name} />
+      <BarLabel x={x2 + 6} flipX={x1 - 6} edge={timeline.width} text={task.name} />
     </>
   );
 }
 
-function BarLabel({ x, text }: { x: number; text: string }) {
+/** Rough width of a 10px label, to decide whether it fits before the chart's right edge. */
+const LABEL_CHAR_W = 5.6;
+
+/** Sits right of its bar; when that would run past the chart's edge (and clip), it moves to the left of the bar. */
+function BarLabel({ x, flipX, edge, text }: { x: number; flipX: number; edge: number; text: string }) {
+  const flip = x + text.length * LABEL_CHAR_W > edge && flipX - text.length * LABEL_CHAR_W >= 0;
   return (
-    <span className="pointer-events-none absolute whitespace-nowrap text-[10px] leading-[26px] text-slate-500 dark:text-slate-400" style={{ left: x, top: 0 }}>
+    <span
+      className="pointer-events-none absolute whitespace-nowrap text-[10px] leading-[26px] text-slate-500 dark:text-slate-400"
+      style={flip ? { right: edge - flipX, top: 0 } : { left: x, top: 0 }}
+    >
       {text}
     </span>
   );

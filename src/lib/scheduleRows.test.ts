@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildRows, describeDateRange, endOfDay, makePredicate, matchesDateRange, maxWbsDepth, toDateRange } from "./scheduleRows";
+import { buildRows, collapsibleIds, describeDateRange, endOfDay, makePredicate, matchesDateRange, maxWbsDepth, toDateRange } from "./scheduleRows";
 import { buildSchedule, listProjects, type Activity, type WbsNode } from "./xer/model";
 import { parseXer } from "./xer/parse";
 
@@ -281,6 +281,37 @@ describe("buildRows with a WBS depth limit", () => {
     const rows = buildRows(schedule.roots, new Set(), null, 1);
     expect(kinds(rows)[0]).toBe("w:Riverside Office Building");
     expect(kinds(rows).slice(1).every((k) => k.startsWith("t:"))).toBe(true);
+  });
+});
+
+describe("buildRows with no groups (depth 0)", () => {
+  const xer = parseXer(sampleText);
+  const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const tasks = (rows: ReturnType<typeof buildRows>) => rows.filter((r) => r.kind === "task");
+
+  test("lists every activity and no group rows, all at depth 0", () => {
+    const flat = buildRows(schedule.roots, new Set(), null, 0);
+    const full = buildRows(schedule.roots, new Set(), null);
+    expect(flat.every((r) => r.kind === "task" && r.depth === 0)).toBe(true);
+    expect(flat.map((r) => (r as { task: { id: string } }).task.id)).toEqual(tasks(full).map((r) => (r as { task: { id: string } }).task.id));
+  });
+
+  test("ignores collapsed groups", () => {
+    const collapsed = new Set(collapsibleIds(schedule.roots));
+    expect(buildRows(schedule.roots, collapsed, null, 0)).toEqual(buildRows(schedule.roots, new Set(), null, 0));
+  });
+
+  test("applies the filter", () => {
+    const predicate = makePredicate("all", "curtain")!;
+    const rows = buildRows(schedule.roots, new Set(), predicate, 0);
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.kind === "task" && predicate(r.task))).toBe(true);
+  });
+
+  test("by date, the whole list is in start order across groups", () => {
+    const rows = tasks(buildRows(schedule.roots, new Set(), null, 0, "date")) as Array<{ task: { start: number | null } }>;
+    const keys = rows.map((r) => r.task.start ?? Infinity);
+    expect(keys.every((k, i) => i === 0 || keys[i - 1]! <= k)).toBe(true);
   });
 });
 

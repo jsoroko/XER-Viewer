@@ -9,8 +9,11 @@ import {
   type DateMode,
   type Row,
 } from "./scheduleRows";
+import { routeLink, SIDES, type Point, type Side } from "./links";
+import { OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumnKey } from "./scheduleColumns";
 import { buildTicks, DAY, makeTimeline, paddedRange } from "./timeline";
-import { isMilestone, type Activity, type Schedule } from "./xer/model";
+import { nonWorkingRuns } from "./xer/calendar";
+import { isMilestone, type Activity, type Relationship, type Schedule } from "./xer/model";
 
 /**
  * Prints the schedule as it is on screen (the filtered rows, with groups open or closed as you left them) to a PDF:
@@ -23,9 +26,21 @@ import { isMilestone, type Activity, type Schedule } from "./xer/model";
 export const PAGE_W = 1190.55; // A3 landscape: 420 mm
 export const PAGE_H = 841.89; //                297 mm
 const MARGIN = 28;
+/** Empty space kept at each end of the printed chart. */
+const CHART_MARGIN_PT = 10;
 const TREE_W = 262;
 const COL_W = { orig: 34, rem: 34, start: 52, finish: 52, tf: 34 } as const;
-const TABLE_W = TREE_W + COL_W.orig + COL_W.rem + COL_W.start + COL_W.finish + COL_W.tf;
+/** The five fixed columns; the optional ones (see PDF_COLUMNS) extend the table to the right of these. */
+const FIXED_TABLE_W = TREE_W + COL_W.orig + COL_W.rem + COL_W.start + COL_W.finish + COL_W.tf;
+/** The optional columns as printed: shorter labels and widths in points, since there is no tooltip on paper. */
+const PDF_COLUMNS: Record<OptionalColumnKey, { label: string; w: number }> = {
+  percent: { label: "%", w: 30 },
+  actualStart: { label: "Act Start", w: 52 },
+  actualFinish: { label: "Act Finish", w: 52 },
+  freeFloat: { label: "Free Flt", w: 40 },
+};
+/** Non-working shading is only drawn once a day is at least this wide on paper, as it is on screen, where it needs a few pixels. */
+const SHADING_MIN_PT_PER_DAY = 1;
 const ROW_H = 13.5;
 const COL_HEAD_H = 30;
 const FOOTER_H = 22;
@@ -137,6 +152,9 @@ const C = {
   dataDate: [249, 115, 22],
   today: [217, 70, 239],
   red: [185, 28, 28],
+  nonWorking: [231, 235, 242],
+  path: [8, 145, 178],
+  pathRow: [224, 247, 250],
 } as const satisfies Record<string, RGB>;
 
 const fill = (d: jsPDF, c: RGB) => d.setFillColor(c[0], c[1], c[2]);
@@ -157,6 +175,10 @@ function fit(d: jsPDF, s: string, maxW: number): string {
   return lo > 0 ? `${s.slice(0, lo)}...` : "";
 }
 
+/** Mixes a colour towards white, to push the activities off a traced path into the background. */
+const FADE = 0.65;
+const fade = (c: RGB): RGB => [c[0] + (255 - c[0]) * FADE, c[1] + (255 - c[1]) * FADE, c[2] + (255 - c[2]) * FADE];
+
 function diamond(d: jsPDF, cx: number, cy: number, h: number) {
   d.lines([[h, h], [-h, h], [-h, -h], [h, -h]], cx, cy - h, [1, 1], "F", true);
 }
@@ -172,6 +194,15 @@ export interface PrintInput {
   generatedAt?: Date;
   /** Draw a dashed line at this time (ms), if it falls inside the printed time axis. Omit or null for none. */
   today?: number | null;
+  /** The optional columns switched on, to print after TF. Order does not matter: they print in the table's own order. */
+  columns?: readonly string[];
+  /** Shade weekends and holidays on the chart, from the project's default calendar. */
+  shadeNonWorking?: boolean;
+  /**
+   * A traced driving path (see drivingPath.ts) to show: its activities are outlined and linked, all others faded.
+   * `label` goes in the header, e.g. "Backward trace from A1000".
+   */
+  trace?: { label: string; ids: ReadonlySet<string>; links: readonly Relationship[] } | null;
 }
 
 export interface PdfOptions {
@@ -198,7 +229,10 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   // Header text (its height decides how many rows fit on a page)
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
+  const trace = input.trace && input.trace.ids.size > 0 ? input.trace : null;
   const described = describeFilters(filters);
+  // "Path only" already names the trace; otherwise say it is being shown, so a faded sheet isn't a mystery.
+  if (trace && !filters.path) described.push(`Traced path: ${trace.label}`);
   const filterText = pdfText(described.length ? described.join("   |   ") : "No filters applied");
   const filterLines = (doc.splitTextToSize(filterText, PAGE_W - 2 * MARGIN - 260) as string[]).slice(0, MAX_FILTER_LINES);
   const headH = headerHeight(filterLines.length);
@@ -207,9 +241,14 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
 
   // Time axis, fitted to the activities actually printed
   const span = printedSpan(rows) ?? schedule.range;
-  const extent = paddedRange(span);
-  const ganttX = MARGIN + TABLE_W;
+  const padded = paddedRange(span);
+  const extra = OPTIONAL_COLUMNS.filter((c) => input.columns?.includes(c.key)).map((c) => ({ ...c, ...PDF_COLUMNS[c.key] }));
+  const tableW = FIXED_TABLE_W + extra.reduce((n, c) => n + c.w, 0);
+  const ganttX = MARGIN + tableW;
   const ganttW = PAGE_W - MARGIN - ganttX;
+  // A fixed margin in points either side of the whole months paddedRange gives, so the first and last bars aren't against the edge.
+  const ptPerDay = (ganttW - 2 * CHART_MARGIN_PT) / ((padded.end - padded.start) / DAY);
+  const extent = { start: padded.start - (CHART_MARGIN_PT / ptPerDay) * DAY, end: padded.end + (CHART_MARGIN_PT / ptPerDay) * DAY };
   const days = (extent.end - extent.start) / DAY;
   const tl = makeTimeline(extent.start, extent.end, ganttW / days);
   const ticks = buildTicks(tl);
@@ -219,6 +258,9 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   const todayX = today !== null && today >= extent.start && today <= extent.end ? ganttX + tl.x(today) : null;
 
   const bodyTop = MARGIN + headH + COL_HEAD_H;
+  const pattern = schedule.defaultCalendar?.pattern ?? null;
+  const shading =
+    input.shadeNonWorking && pattern && ganttW / days >= SHADING_MIN_PT_PER_DAY ? nonWorkingRuns(pattern, extent.start, extent.end) : [];
 
   for (let page = 0; page < pages; page++) {
     if (page > 0) doc.addPage("a3", "landscape");
@@ -264,6 +306,10 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
       doc.text(label, align === "right" ? x + w - 4 : x + 4, headY, { align, baseline: "middle" });
       x += w;
     }
+    for (const c of extra) {
+      doc.text(c.label, c.align === "right" ? x + c.w - 4 : x + 4, headY, { align: c.align, baseline: "middle" });
+      x += c.w;
+    }
     stroke(doc, C.muted);
     doc.setLineWidth(0.4);
     doc.line(ganttX, headTop, ganttX, bodyTop + bodyH);
@@ -283,6 +329,16 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
       if (doc.getTextWidth(label) + 3 <= t.w) doc.text(label, ganttX + t.x + 2, headTop + (COL_HEAD_H * 3) / 4, { baseline: "middle" });
     }
 
+    // -- Non-working time ---------------------------------------------------------------------------------------------
+    if (slice.length > 0 && shading.length > 0) {
+      fill(doc, C.nonWorking);
+      for (const [from, to] of shading) {
+        const x1 = Math.max(0, tl.x(from));
+        const x2 = Math.min(ganttW, tl.x(to));
+        if (x2 > x1) doc.rect(ganttX + x1, bodyTop, x2 - x1, bodyH, "F");
+      }
+    }
+
     // -- Vertical grid lines ------------------------------------------------------------------------------------------
     if (slice.length > 0 && ticks.bottom.length < 600) {
       stroke(doc, C.grid);
@@ -294,9 +350,13 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     slice.forEach((row, i) => {
       const top = bodyTop + i * ROW_H;
       const mid = top + ROW_H / 2;
+      const onPath = trace !== null && row.kind === "task" && trace.ids.has(row.task.id);
       if (row.kind === "wbs") {
         fill(doc, C.band);
         doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, ROW_H, "F");
+      } else if (onPath) {
+        fill(doc, C.pathRow);
+        doc.rect(MARGIN, top, tableW, ROW_H, "F");
       }
       stroke(doc, C.line);
       doc.setLineWidth(0.25);
@@ -341,11 +401,20 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
         if (a.status !== "completed") {
           const tf = fmtDays(a.totalFloatHrs, a.dayHrs);
           if (a.critical) ink(doc, C.red);
-          doc.text(tf, MARGIN + TABLE_W - 4, mid, { align: "right", baseline: "middle" });
+          doc.text(tf, MARGIN + FIXED_TABLE_W - 4, mid, { align: "right", baseline: "middle" });
         }
-        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate);
+        ink(doc, C.text);
+        let ex = MARGIN + FIXED_TABLE_W;
+        for (const c of extra) {
+          doc.text(pdfText(optionalColumnValue(c.key, a)), c.align === "right" ? ex + c.w - 4 : ex + 4, mid, { align: c.align, baseline: "middle" });
+          ex += c.w;
+        }
+        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : "off");
       }
     });
+
+    // -- Traced path: its links, where both ends are on this page ---------------------------------------------------------
+    if (trace) drawPathLinks(doc, slice, trace.links, bodyTop, ganttX, tl.x);
 
     // -- Data date line -------------------------------------------------------------------------------------------------
     if (dataDateX !== null && slice.length > 0) {
@@ -364,7 +433,7 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     }
 
     // -- Footer: legend -------------------------------------------------------------------------------------------------
-    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, todayX !== null);
+    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, { today: todayX !== null, nonWorking: shading.length > 0, path: trace !== null });
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     ink(doc, C.muted);
@@ -399,29 +468,106 @@ function drawSummaryBar(doc: jsPDF, start: number | null, finish: number | null,
   doc.rect(ganttX + x2 - 1.2, mid - 1.8, 1.2, 6, "F");
 }
 
-function drawTaskBar(doc: jsPDF, a: Activity, mid: number, ganttX: number, ganttW: number, x: (t: number) => number, dataDate: number | null) {
+/** Where a link attaches to a bar or diamond, in points across the chart, mirroring how drawTaskBar draws them. */
+function pdfAnchor(a: Activity, side: Side, x: (t: number) => number): number | null {
+  if (a.start === null || a.finish === null) return null;
+  if (isMilestone(a)) {
+    const cx = x(a.type === "finish-milestone" ? a.finish : a.start);
+    return side === "finish" ? cx + 3.6 : cx - 3.6;
+  }
+  return side === "start" ? x(a.start) : Math.max(x(a.finish), x(a.start) + 1.5);
+}
+
+/**
+ * The traced path's relationships as lines between bars. A link is only drawn when both its activities are on this page
+ * (the printed rows come from one list, so a link that crosses a page break is simply left out).
+ */
+function drawPathLinks(doc: jsPDF, slice: Row[], links: readonly Relationship[], bodyTop: number, ganttX: number, x: (t: number) => number) {
+  const rowOf = new Map<string, number>();
+  slice.forEach((r, i) => {
+    if (r.kind === "task") rowOf.set(r.task.id, i);
+  });
+  if (rowOf.size === 0) return;
+  const byId = new Map<string, Activity>();
+  for (const r of slice) if (r.kind === "task") byId.set(r.task.id, r.task);
+
+  stroke(doc, C.path);
+  fill(doc, C.path);
+  doc.setLineWidth(0.9);
+  for (const rel of links) {
+    const pred = byId.get(rel.predTaskId);
+    const succ = byId.get(rel.taskId);
+    if (!pred || !succ) continue;
+    const [fromSide, toSide] = SIDES[rel.type];
+    const fx = pdfAnchor(pred, fromSide, x);
+    const tx = pdfAnchor(succ, toSide, x);
+    if (fx === null || tx === null) continue;
+    const from: Point = { x: ganttX + fx, y: bodyTop + rowOf.get(pred.id)! * ROW_H + ROW_H / 2 };
+    const to: Point = { x: ganttX + tx, y: bodyTop + rowOf.get(succ.id)! * ROW_H + ROW_H / 2 };
+    const { points, arrowDir } = routeLink(from, fromSide, to, toSide, ROW_H);
+    doc.lines(
+      points.slice(1).map((p, i) => [p.x - points[i]!.x, p.y - points[i]!.y] as [number, number]),
+      points[0]!.x,
+      points[0]!.y,
+      [1, 1],
+      "S",
+      false,
+    );
+    doc.triangle(to.x, to.y, to.x - arrowDir * 4, to.y - 2, to.x - arrowDir * 4, to.y + 2, "F");
+  }
+}
+
+/** `path` is where the bar sits against a traced path: on it (outlined), off it (faded), or null when none is shown. */
+function drawTaskBar(
+  doc: jsPDF,
+  a: Activity,
+  mid: number,
+  ganttX: number,
+  ganttW: number,
+  x: (t: number) => number,
+  dataDate: number | null,
+  path: "on" | "off" | null,
+) {
   if (a.start === null || a.finish === null) return;
+  const tone = (c: RGB): RGB => (path === "off" ? fade(c) : c);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
-  ink(doc, C.muted);
-  const label = (from: number) => {
+  ink(doc, tone(C.muted));
+  // To the right of the bar; when that would run off the chart it goes to the left of the bar instead (as on screen).
+  const label = (from: number, leftEdge: number) => {
+    const text = pdfText(a.name);
+    const w = doc.getTextWidth(text);
+    if (from + 3 + w > ganttW && leftEdge - 3 - w >= 0) {
+      doc.text(text, ganttX + leftEdge - 3, mid, { align: "right", baseline: "middle" });
+      return;
+    }
     const room = ganttW - from - 2;
-    if (room > 24) doc.text(fit(doc, pdfText(a.name), room), ganttX + from + 3, mid, { baseline: "middle" });
+    if (room > 24) doc.text(fit(doc, text, room), ganttX + from + 3, mid, { baseline: "middle" });
+  };
+  const outline = (left: number, width: number, h: number) => {
+    stroke(doc, C.path);
+    doc.setLineWidth(0.9);
+    doc.rect(ganttX + left - 1, mid - h / 2 - 1, width + 2, h + 2, "S");
   };
 
   if (isMilestone(a)) {
     const cx = x(a.type === "finish-milestone" ? a.finish : a.start);
-    fill(doc, a.critical ? C.red : a.status === "completed" ? C.complete : C.text);
+    if (path === "on") {
+      fill(doc, C.path);
+      diamond(doc, ganttX + cx, mid, 5.2);
+    }
+    fill(doc, tone(a.critical ? C.red : a.status === "completed" ? C.complete : C.text));
     diamond(doc, ganttX + cx, mid, 3.6);
-    label(cx + 5);
+    label(cx + 5, cx - 5);
     return;
   }
   const x1 = x(a.start);
   const x2 = Math.max(x(a.finish), x1 + 1.5);
   if (a.type === "loe") {
-    fill(doc, C.loe);
+    fill(doc, tone(C.loe));
     doc.rect(ganttX + x1, mid - 1.3, x2 - x1, 2.6, "F");
-    label(x2 + 2);
+    if (path === "on") outline(x1, x2 - x1, 2.6);
+    label(x2 + 2, x1);
     return;
   }
   const split =
@@ -430,14 +576,15 @@ function drawTaskBar(doc: jsPDF, a: Activity, mid: number, ganttX: number, gantt
       : a.status === "in-progress" && dataDate !== null
         ? Math.min(x2, Math.max(x1, x(dataDate)))
         : x1;
-  fill(doc, a.status === "completed" ? C.complete : a.critical ? C.critActual : C.actual);
+  fill(doc, tone(a.status === "completed" ? C.complete : a.critical ? C.critActual : C.actual));
   if (split > x1) doc.rect(ganttX + x1, mid - 3.2, split - x1, 6.4, "F");
-  fill(doc, a.critical ? C.critRemaining : C.remaining);
+  fill(doc, tone(a.critical ? C.critRemaining : C.remaining));
   if (x2 > split) doc.rect(ganttX + split, mid - 3.2, x2 - split, 6.4, "F");
-  label(x2 + 2);
+  if (path === "on") outline(x1, x2 - x1, 6.4);
+  label(x2 + 2, x1);
 }
 
-function drawLegend(doc: jsPDF, x0: number, y: number, showToday: boolean) {
+function drawLegend(doc: jsPDF, x0: number, y: number, show: { today: boolean; nonWorking: boolean; path: boolean }) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   let x = x0;
@@ -466,7 +613,22 @@ function drawLegend(doc: jsPDF, x0: number, y: number, showToday: boolean) {
     doc.setLineWidth(0.8);
     doc.line(sx + 2, y - 4, sx + 2, y + 4);
   }, 4);
-  if (showToday) {
+  if (show.nonWorking) {
+    item("Non-working", (sx) => {
+      fill(doc, C.nonWorking);
+      stroke(doc, C.muted);
+      doc.setLineWidth(0.3);
+      doc.rect(sx, y - 3, 14, 6, "FD");
+    }, 14);
+  }
+  if (show.path) {
+    item("Traced path", (sx) => {
+      stroke(doc, C.path);
+      doc.setLineWidth(0.9);
+      doc.rect(sx, y - 3, 14, 6, "S");
+    }, 14);
+  }
+  if (show.today) {
     item("Today", (sx) => {
       stroke(doc, C.today);
       doc.setLineWidth(0.8);

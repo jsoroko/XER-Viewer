@@ -5,10 +5,16 @@ import { buttonClass } from "./ui";
 interface Props {
   /** A date range is selected, so there is something other than the whole project to fit to. */
   hasRange: boolean;
+  /** The rows on screen cover a different period from the whole project, so that period can be fitted too. */
+  hasRows: boolean;
+  /** The activities on screen cover a narrower period than the rows do (the group rows above them reach further). */
+  hasActivities: boolean;
   /** The chart is currently fitted to the whole project. */
   fitted: boolean;
   onFitProject: () => void;
   onFitDates: () => void;
+  onFitRows: () => void;
+  onFitActivities: () => void;
 }
 
 const itemClass =
@@ -16,13 +22,15 @@ const itemClass =
   "hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800";
 
 /**
- * "Fit View". With no date range selected it is a plain button that fits the whole project. Once a range is selected
- * it opens a small menu with the two choices: the project's duration, or the selected dates.
+ * "Fit View". Normally a plain button that fits the whole project. When a date range is selected, or the rows shown
+ * (after a search, filter or trace) cover less than the project, it opens a small menu of the choices: the project's
+ * duration, the selected dates, or the visible rows (groups included), or just the visible activities.
  */
-export function FitViewButton({ hasRange, fitted, onFitProject, onFitDates }: Props) {
+export function FitViewButton({ hasRange, hasRows, hasActivities, fitted, onFitProject, onFitDates, onFitRows, onFitActivities }: Props) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const shown = open && hasRange; // clearing the dates closes the menu
+  const menu = hasRange || hasRows || hasActivities;
+  const shown = open && menu; // clearing the dates or the filter closes the menu
 
   useEffect(() => {
     if (!shown) return;
@@ -44,7 +52,7 @@ export function FitViewButton({ hasRange, fitted, onFitProject, onFitDates }: Pr
     action();
   };
 
-  if (!hasRange) {
+  if (!menu) {
     return (
       <button type="button" className={buttonClass} onClick={onFitProject} aria-pressed={fitted} title="Fit the whole project in the window">
         Fit View
@@ -60,7 +68,7 @@ export function FitViewButton({ hasRange, fitted, onFitProject, onFitDates }: Pr
         aria-haspopup="menu"
         aria-expanded={shown}
         onClick={() => setOpen((v) => !v)}
-        title="Fit the chart to the whole project or to the selected dates"
+        title="Fit the chart to the whole project, the selected dates or the rows shown"
       >
         Fit View
         <LuChevronDown size={14} aria-hidden />
@@ -75,9 +83,21 @@ export function FitViewButton({ hasRange, fitted, onFitProject, onFitDates }: Pr
           <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onFitProject)}>
             Project Duration
           </button>
-          <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onFitDates)}>
-            Selected Dates
-          </button>
+          {hasRange && (
+            <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onFitDates)}>
+              Selected Dates
+            </button>
+          )}
+          {hasRows && (
+            <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onFitRows)}>
+              Visible Rows
+            </button>
+          )}
+          {hasActivities && (
+            <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onFitActivities)}>
+              Visible Activities
+            </button>
+          )}
         </div>
       )}
     </div>

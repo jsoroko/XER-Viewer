@@ -9,7 +9,9 @@ import {
   rowsPerPage,
   safeFileName,
   type FilterState,
+  type PrintInput,
 } from "./printPdf";
+import { traceDriving } from "./drivingPath";
 import { buildRows, makePredicate, type Row } from "./scheduleRows";
 import { buildSchedule, listProjects } from "./xer/model";
 import { parseXer } from "./xer/parse";
@@ -237,5 +239,189 @@ describe("helpers", () => {
   test("file names are safe and dated", () => {
     expect(safeFileName("HS2 - Old Oak Common / WP23: “Anthro”", new Date(2026, 8, 5))).toBe("HS2_-_Old_Oak_Common_WP23_Anthro_2026-09-05.pdf");
     expect(safeFileName("???", new Date(2026, 0, 1))).toBe("schedule_2026-01-01.pdf");
+  });
+});
+
+/** Same as `render`, for the options added since: columns, shading and a traced path. */
+async function renderWith(extra: Partial<PrintInput>, rows = allRows, filters = noFilters) {
+  const { blob, pages } = await buildPdf(
+    { schedule, rows, filters, matched: schedule.activities.length, total: schedule.activities.length, generatedAt: new Date(2026, 8, 21, 14, 5), ...extra },
+    { compress: false },
+  );
+  return { text: pdfString(await blob.arrayBuffer()), pages };
+}
+
+describe("optional columns", () => {
+  const headers = (text: string) => {
+    const lines = shown(text);
+    return lines.slice(lines.indexOf("TF") + 1);
+  };
+
+  test("print after TF in the table's own order, however they were switched on", async () => {
+    const { text } = await renderWith({ columns: ["freeFloat", "percent", "actualFinish"] });
+    expect(headers(text).slice(0, 3)).toEqual(["%", "Act Finish", "Free Flt"]);
+  });
+
+  test("none are printed unless asked for, and unknown names are ignored", async () => {
+    for (const columns of [undefined, [], ["nonsense"]]) {
+      const { text } = await renderWith({ columns });
+      const lines = shown(text);
+      expect(lines).not.toContain("%");
+      expect(lines).not.toContain("Free Flt");
+      expect(lines.some((l) => /^\d+%$/.test(l))).toBe(false);
+    }
+  });
+
+  test("each activity gets its value, and group rows stay blank", async () => {
+    const { text } = await renderWith({ columns: ["percent"] });
+    const taskCount = allRows.filter((r) => r.kind === "task").length;
+    expect(shown(text).filter((l) => /^\d+%$/.test(l))).toHaveLength(taskCount);
+    const done = schedule.activities.find((a) => a.status === "completed")!;
+    expect(shown(text)).toContain(`${Math.round(done.percent)}%`);
+  });
+
+  test("percent and float line up on their right edge, dates on their left", async () => {
+    const { text } = await renderWith({ columns: ["percent"] });
+    const start = (value: string) => Number(text.match(new RegExp(`\\n([\\d.]+) [\\d.]+ Td\\n\\(${value}\\) Tj`))?.[1]);
+    expect(start("0%")).toBeGreaterThan(start("100%")); // same right edge, so the shorter one starts further right
+    expect(start("0%") - start("100%")).toBeGreaterThan(5);
+  });
+
+  test("the chart starts further right to make room, by exactly the columns' width", async () => {
+    const edge = (text: string) => Number(text.match(/\n([\d.]+) [\d.]+ m\n\1 [\d.]+ l\nS/)?.[1]);
+    const base = edge((await renderWith({})).text);
+    expect(base).toBeCloseTo(28 + 262 + 34 + 34 + 52 + 52 + 34, 1);
+    expect(edge((await renderWith({ columns: ["percent"] })).text)).toBeCloseTo(base + 30, 1);
+    expect(edge((await renderWith({ columns: ["percent", "actualStart", "actualFinish", "freeFloat"] })).text)).toBeCloseTo(base + 30 + 52 + 52 + 40, 1);
+  });
+});
+
+describe("non-working shading", () => {
+  const SHADE = "0.91 0.92 0.95 rg";
+
+  test("is drawn, with a legend entry, when switched on", async () => {
+    const { text } = await renderWith({ shadeNonWorking: true });
+    expect(text).toContain(SHADE);
+    expect(shown(text)).toContain("Non-working");
+  });
+
+  test("is left out, with no legend entry, when off", async () => {
+    for (const shadeNonWorking of [undefined, false]) {
+      const { text } = await renderWith({ shadeNonWorking });
+      expect(text).not.toContain(SHADE);
+      expect(shown(text)).not.toContain("Non-working");
+    }
+  });
+
+  test("is left out when the printed span is so long that a weekend would be a hairline, so the legend never lists it", async () => {
+    const first = allRows.find((r) => r.kind === "task")!;
+    const stretched = allRows.map((r) => (r === first && r.kind === "task" ? { ...r, task: { ...r.task, finish: new Date(2040, 0, 1).getTime() } } : r));
+    const { text } = await renderWith({ shadeNonWorking: true }, stretched);
+    expect(text).not.toContain(SHADE);
+    expect(shown(text)).not.toContain("Non-working");
+  });
+
+  test("never spills left of the chart into the table, wherever the printed span happens to begin", async () => {
+    const first = allRows.find((r) => r.kind === "task")!;
+    for (let day = 0; day < 7; day++) {
+      const moved = allRows.map((r) =>
+        r === first && r.kind === "task" ? { ...r, task: { ...r.task, start: new Date(2026, 0, 1 + day, 12).getTime() } } : r,
+      );
+      const { text } = await renderWith({ shadeNonWorking: true }, moved);
+      const stripes = text.split(SHADE + "\n")[1]!.split(/\n[\d. ]+ (?:rg|RG)\n/)[0]!;
+      const xs = [...stripes.matchAll(/^([\d.]+) [\d.]+ [\d.]+ -?[\d.]+ re$/gm)].map((m) => Number(m[1]));
+      expect(xs.length).toBeGreaterThan(10);
+      for (const x of xs) expect(x).toBeGreaterThanOrEqual(496 - 0.001);
+    }
+  });
+
+  test("does not draw over an empty result", async () => {
+    const { text } = await renderWith({ shadeNonWorking: true }, []);
+    expect(text.split(SHADE).length - 1).toBe(1); // only the legend's swatch, no stripes
+  });
+});
+
+describe("a traced path", () => {
+  const origin = schedule.activities.find((a) => a.code === "FD1050")!;
+  const result = traceDriving(schedule, origin.id, "backward");
+  const trace = { label: "Backward trace from FD1050", ids: result.ids, links: result.links.map((l) => l.rel) };
+  const OUTLINE = "0.03 0.57 0.7 RG";
+  const ROW_TINT = "0.88 0.97 0.98 rg";
+  const FADED_ACTUAL = "0.69 0.76 0.95 rg"; // the "Actual" blue pushed towards white
+
+  test("is outlined and tinted, the rest faded, with a legend entry and a line in the header", async () => {
+    const { text } = await renderWith({ trace });
+    expect(result.ids.size).toBeGreaterThan(5);
+    expect(text).toContain(OUTLINE);
+    expect(text).toContain(ROW_TINT);
+    expect(text).toContain(FADED_ACTUAL);
+    expect(shown(text)).toContain("Traced path");
+    expect(shown(text).some((l) => l.includes("Traced path: Backward trace from FD1050"))).toBe(true);
+  });
+
+  test("draws nothing of the kind when there is no trace, or an empty one", async () => {
+    for (const t of [undefined, null, { label: "x", ids: new Set<string>(), links: [] }]) {
+      const { text } = await renderWith({ trace: t });
+      for (const mark of [OUTLINE, ROW_TINT, FADED_ACTUAL]) expect(text).not.toContain(mark);
+      expect(shown(text)).not.toContain("Traced path");
+    }
+  });
+
+  test("its links are drawn between the bars", async () => {
+    const withLinks = await renderWith({ trace });
+    const without = await renderWith({ trace: { ...trace, links: [] } });
+    expect(withLinks.text.length).toBeGreaterThan(without.text.length);
+  });
+
+  const tasks = allRows.flatMap((r) => (r.kind === "task" ? [r.task] : []));
+  const link = (from: string, to: string) => ({ id: "x", predTaskId: from, taskId: to, type: "FS" as const, lagHrs: 0 });
+  const arrowheads = (text: string) => text.split("\nh\nf\n").length - 1;
+
+  test("each link on the page gets a line and one arrowhead", async () => {
+    const [a, b] = [tasks[0]!, tasks[1]!];
+    const ids = new Set([a.id, b.id]);
+    const one = await renderWith({ trace: { label: "x", ids, links: [link(a.id, b.id)] } });
+    const none = await renderWith({ trace: { label: "x", ids, links: [] } });
+    expect(arrowheads(one.text) - arrowheads(none.text)).toBe(1);
+  });
+
+  test("a link that runs across a page break is left out instead of failing", async () => {
+    const [a, z] = [tasks[0]!, tasks[tasks.length - 1]!];
+    const ids = new Set([a.id, z.id]);
+    const crossing = await renderWith({ trace: { label: "x", ids, links: [link(a.id, z.id)] } });
+    const none = await renderWith({ trace: { label: "x", ids, links: [] } });
+    expect(crossing.pages).toBeGreaterThan(1);
+    expect(arrowheads(crossing.text)).toBe(arrowheads(none.text));
+  });
+
+  test("with Path only on, the header names the path once, as a filter", async () => {
+    const rows = buildRows(schedule.roots, new Set(), (a) => result.ids.has(a.id));
+    const { text } = await renderWith({ trace }, rows, { ...noFilters, path: "Backward trace from FD1050" });
+    const header = shown(text).filter((l) => l.includes("Backward trace from FD1050"));
+    expect(header).toHaveLength(1); // a single page, so a single header line
+    expect(header[0]).toContain("Path only: Backward trace from FD1050");
+    expect(header[0]).not.toContain("Traced path:");
+  });
+});
+
+describe("the ends of the chart", () => {
+  const dated = schedule.activities.filter((a) => a.finish !== null);
+  const last = dated.reduce((m, a) => (a.finish! > m.finish! ? a : m));
+
+  test("a label that wouldn't fit right of the last bar is printed whole, to its left", async () => {
+    // Long enough to overrun the chart's right edge, short enough for the activity column.
+    const task = { ...last, name: "Handover of the completed works to the client" };
+    const rows = allRows.filter((r) => r.kind === "task").map((r) => (r.kind === "task" && r.task.id === last.id ? { ...r, task } : r));
+    const { text } = await render(rows);
+    // Once in the activity column, once as the label by its bar.
+    expect(shown(text).filter((t) => t === pdfText(task.name))).toHaveLength(2);
+  });
+
+  test("a flat list with no group rows prints like any other", async () => {
+    const flat = buildRows(schedule.roots, new Set(), null, 0);
+    const { text, pages } = await render(flat);
+    expect(pages).toBeGreaterThan(0);
+    expect(shown(text)).toContain(pdfText(last.name));
+    expect(flat.every((r) => r.kind === "task")).toBe(true);
   });
 });
