@@ -79,6 +79,8 @@ export interface FilterState {
   dateTo: string;
   dateMode: DateMode;
   advanced: AdvancedFilter;
+  /** What the schedule is narrowed to by a traced driving path, e.g. "Backward trace from A1000", when it is. */
+  path?: string | null;
 }
 
 /** One short line per active filter, printed under the title so the sheet says what it shows. */
@@ -99,6 +101,7 @@ export function describeFilters(f: FilterState): string[] {
     return [`${field.label} ${op.label}${op.needsValue ? ` "${c.value.trim()}"` : ""}`];
   });
   if (used.length) lines.push(`Conditions (${f.advanced.mode === "all" ? "all of" : "any of"}): ${used.join("; ")}`);
+  if (f.path) lines.push(`Path only: ${f.path}`);
   return lines;
 }
 

@@ -131,4 +131,26 @@ describe("buildLinks", () => {
     // arrives at the milestone's left edge (600 − 7)
     expect(layer.paths[0]!.d.endsWith("L593 39")).toBe(true);
   });
+
+  test("draws a traced path on its own, counting its hidden links apart from the selected activity's", () => {
+    const layer = buildLinks({
+      predecessors: [rel("1", "a", "sel"), rel("2", "gone", "sel")],
+      successors: [],
+      path: [rel("3", "a", "sel"), rel("4", "sel", "c"), rel("5", "c", "gone")],
+      activityById: byId,
+      rowIndex: new Map([["a", 0], ["sel", 1]]), // c is collapsed away
+      x,
+      rowH: ROW,
+    });
+    expect(layer.paths.map((p) => p.kind)).toEqual(["pred", "path"]);
+    expect(layer.paths[1]!.key).toBe("path-3");
+    expect(layer.hidden).toBe(1);
+    expect(layer.pathHidden).toBe(2);
+  });
+
+  test("a path is optional", () => {
+    const layer = buildLinks({ predecessors: [], successors: [], activityById: byId, rowIndex: new Map(), x, rowH: ROW });
+    expect(layer.paths).toEqual([]);
+    expect(layer.pathHidden).toBe(0);
+  });
 });

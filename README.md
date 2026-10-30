@@ -19,6 +19,22 @@ the browser and never leaves your machine, so there is no backend.
   filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
   - **Dependency lines** – switch **Links** on, then select an activity to draw its predecessors (amber) and successors (violet) with
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
+  - **Trace driving logic** – select an activity, then **Trace** and choose **Backward** (what drives it: its
+    driving predecessors, and theirs, back to where the chain starts), **Forward** (what it drives) or
+    **Combined** (both: the whole chain through it). **Between two…** takes a second activity, selected next in the
+    schedule, and shows the driving chain between them whichever comes first. If neither drives the other it shows
+    the route with the least total float and says how much. A relationship *drives* when it has no relationship
+    float: the successor's date is exactly what the predecessor's date plus lag asks for. That is measured in working
+    time on the predecessor's calendar (P6's default calendar for lag) from the dates already in the file, so
+    calendars, lags, constraints and progress are respected, and nothing is rescheduled. Tied chains are all
+    shown. The path is outlined on the chart with its links drawn in cyan, every other row is dimmed, and a panel
+    (which takes the details panel's place until you close it) lists each step in date order with the relationship
+    that feeds it, its float and the path's overall span; click a step to select it. **Path only** narrows the
+    schedule, WBS groups included, to the path, and the PDF header says so; **CSV** downloads the steps.
+    Level-of-effort and WBS summary activities take their dates from other activities, so they never drive and are
+    left out. Relationships to undated activities can't be measured and break the chain. Unlike P6's own Longest
+    Path / Multiple Float Paths, which are worked out for one end activity when the schedule is calculated, this
+    works for any activity in any exported file.
   - **Date range filter** – the **Dates** button (it shows the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
     scrolled into view. **Fit View** fits the whole project; once a range is set it opens a menu offering *Project
@@ -98,14 +114,15 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | --- | --- |
 | `src/lib/xer/parse.ts` | Tab-delimited XER parser (`%T` / `%F` / `%R`), encoding detection |
 | `src/lib/xer/model.ts` | Builds a typed schedule: WBS tree, activities, logic, resources, codes, stats |
-| `src/lib/xer/calendar.ts` | Parses P6 `clndr_data` work patterns; working days, non-working runs, summaries |
+| `src/lib/xer/calendar.ts` | Parses P6 `clndr_data` work patterns; working days and hours, non-working runs, summaries |
 | `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale (and the fit-to-range margin logic), windowing |
 | `src/lib/advancedFilter.ts` | Filter-builder fields, operators and evaluation |
-| `src/lib/links.ts` | Orthogonal routing for the dependency lines |
+| `src/lib/links.ts` | Orthogonal routing for the dependency lines (and the traced path's links) |
+| `src/lib/drivingPath.ts`, `traceCsv.ts` | Driving-logic tracing (backward / forward / combined / between two activities), its step list and CSV |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
 | `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file; load / restore / close flow |
-| `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TablesView |
+| `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, TablesView |
 | `scripts/generate-sample.ts` | Regenerates `src/sample/sample.xer` (`bun run sample`) |
 
 ## Notes

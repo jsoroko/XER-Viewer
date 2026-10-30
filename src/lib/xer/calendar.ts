@@ -168,6 +168,28 @@ export function workingDaysBetween(p: WorkPattern, start: number, finish: number
   return n;
 }
 
+/**
+ * Working time between two instants, in hours (negative when `to` is earlier than `from`). Only the periods the
+ * calendar calls working count, so Friday 17:00 to Monday 08:00 is 0 on a Mon–Fri 08:00–17:00 calendar.
+ */
+export function workingHoursBetween(p: WorkPattern, from: number, to: number): number {
+  if (to < from) return -workingHoursBetween(p, to, from);
+  let minutes = 0;
+  const last = startOfDay(to).getTime();
+  // Start a day early: a shift that began the evening before can run into the first day.
+  let d = startOfDay(from);
+  d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+  for (let guard = 0; d.getTime() <= last && guard < 100_000; d = nextDay(d), guard++) {
+    for (const period of periodsOn(p, d)) {
+      const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, period.start).getTime();
+      const e = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, period.end).getTime();
+      const overlap = Math.min(e, to) - Math.max(s, from);
+      if (overlap > 0) minutes += overlap / 60_000;
+    }
+  }
+  return minutes / 60;
+}
+
 /** Contiguous runs of non-working days as [from, to) epoch-ms ranges covering [from, to]. */
 export function nonWorkingRuns(p: WorkPattern, from: number, to: number): Array<[number, number]> {
   const runs: Array<[number, number]> = [];

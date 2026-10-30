@@ -7,6 +7,7 @@ import {
   periodsOn,
   summarizeWeek,
   workingDaysBetween,
+  workingHoursBetween,
 } from "./calendar";
 import { buildSchedule, listProjects } from "./model";
 import { parseXer } from "./parse";
@@ -146,5 +147,27 @@ describe("base calendar inheritance", () => {
 
   test("hours per day are derived from the pattern when P6 doesn't supply them", () => {
     expect(schedule.calendars.get("10")!.dayHrs).toBe(8);
+  });
+});
+
+describe("workingHoursBetween", () => {
+  const p = parseCalendarData(build("(0||0(d|46030)())"))!; // Mon–Fri 08–12, 13–17; Thu 2026-01-08 off
+  const at = (d: number, h: number, m = 0) => new Date(2026, 0, d, h, m).getTime();
+
+  test("counts only the working periods, so lunch and nights are free", () => {
+    expect(workingHoursBetween(p, at(5, 8), at(5, 17))).toBe(8); // Mon, lunch excluded
+    expect(workingHoursBetween(p, at(5, 12), at(5, 13))).toBe(0);
+    expect(workingHoursBetween(p, at(5, 17), at(6, 8))).toBe(0); // overnight
+    expect(workingHoursBetween(p, at(5, 10), at(5, 10, 30))).toBe(0.5);
+  });
+
+  test("weekends and exceptions are skipped", () => {
+    expect(workingHoursBetween(p, at(9, 17), at(12, 8))).toBe(0); // Fri evening to Mon morning
+    expect(workingHoursBetween(p, at(7, 8), at(9, 17))).toBe(8 + 0 + 8); // Wed, Thu is a holiday, Fri
+  });
+
+  test("is negative when the end is before the start", () => {
+    expect(workingHoursBetween(p, at(6, 17), at(5, 8))).toBe(-16); // two working days back
+    expect(workingHoursBetween(p, at(5, 9), at(5, 9))).toBe(0);
   });
 });

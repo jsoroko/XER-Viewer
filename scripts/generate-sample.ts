@@ -216,6 +216,11 @@ const fmt = (d: Date | null, h = 8) =>
   d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(h)}:00` : "";
 const start = (d: Date) => fmt(d, 8);
 const finish = (d: Date) => fmt(d, 17);
+// P6 writes an activity's start at its calendar's first work period and its finish at the end of the last, so the
+// concrete calendar (07:00–12:00, 13:00–18:00) needs its own hours rather than the standard 08:00 and 17:00.
+const concrete = (d: Def) => d.wbs.startsWith("RIV.3");
+const startOf = (d: Def, dt: Date) => fmt(dt, concrete(d) ? 7 : 8);
+const finishOf = (d: Def, dt: Date) => fmt(dt, concrete(d) ? 18 : 17);
 
 const out: string[] = [];
 const table = (name: string, fields: string[], rows: Array<Array<string | number>>) => {
@@ -313,13 +318,13 @@ for (const d of defs) {
 
   if (ef < dd || (mile && es <= dd)) {
     status = "TK_Complete";
-    actStart = start(es);
-    actEnd = mile ? start(es) : finish(ef);
+    actStart = startOf(d, es);
+    actEnd = mile ? startOf(d, es) : finishOf(d, ef);
     remDur = 0;
     state.set(d.code, "done");
   } else if (es < dd) {
     status = "TK_Active";
-    actStart = start(es);
+    actStart = startOf(d, es);
     remDur = Math.max(hpd, workdaysBetween(dd, ef) * hpd + hpd);
     state.set(d.code, "active");
   } else {
@@ -328,10 +333,10 @@ for (const d of defs) {
 
   const tfHrs = s!.tf * hpd;
   const isDone = status === "TK_Complete";
-  const startTxt = mile && d.type === "TT_FinMile" ? finish(es) : start(es);
-  const endTxt = mile ? (d.type === "TT_FinMile" ? finish(ef) : start(ef)) : finish(ef);
-  const lateStartTxt = mile && d.type === "TT_FinMile" ? finish(s!.ls) : start(s!.ls);
-  const lateEndTxt = mile ? (d.type === "TT_FinMile" ? finish(s!.lf) : start(s!.lf)) : finish(s!.lf);
+  const startTxt = mile && d.type === "TT_FinMile" ? finishOf(d, es) : startOf(d, es);
+  const endTxt = mile ? (d.type === "TT_FinMile" ? finishOf(d, ef) : startOf(d, ef)) : finishOf(d, ef);
+  const lateStartTxt = mile && d.type === "TT_FinMile" ? finishOf(d, s!.ls) : startOf(d, s!.ls);
+  const lateEndTxt = mile ? (d.type === "TT_FinMile" ? finishOf(d, s!.lf) : startOf(d, s!.lf)) : finishOf(d, s!.lf);
 
   taskRows.push([
     id, pid, wbsId, cal, d.code, d.name,

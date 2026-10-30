@@ -221,6 +221,10 @@ describe("helpers", () => {
     expect(describeFilters({ ...noFilters, dateFrom: "2026-10-01", dateTo: "2026-10-31", dateMode: "starts" })).toEqual([
       "Dates: starting in range 01-Oct-26 – 31-Oct-26",
     ]);
+    // a traced path the schedule is narrowed to is named, and an absent or empty one is not
+    expect(describeFilters({ ...noFilters, path: "Backward trace from FD1050" })).toEqual(["Path only: Backward trace from FD1050"]);
+    expect(describeFilters({ ...noFilters, path: null })).toEqual([]);
+    expect(describeFilters({ ...noFilters, path: "" })).toEqual([]);
     // an inverted date range is ignored on screen, so it is not claimed on paper
     expect(describeFilters({ ...noFilters, dateFrom: "2026-12-01", dateTo: "2026-10-01" })).toEqual([]);
     const advanced = {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { downloadBlob } from "../lib/csv";
+import { describeTrace, runTrace, type TraceSpec } from "../lib/drivingPath";
 import { buildLinks } from "../lib/links";
 import { buildPdf, describeFilters, estimatePages, safeFileName } from "../lib/printPdf";
 import {
@@ -36,6 +37,8 @@ import { ColumnsMenu } from "./ColumnsMenu";
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
 import { FitViewButton } from "./FitViewButton";
+import { TraceMenu, type TraceChoice } from "./TraceMenu";
+import { TracePanel } from "./TracePanel";
 import { WbsLevelSelect } from "./WbsLevelSelect";
 import { LuChevronsDown, LuChevronsUp, LuMinus, LuPlus, LuPrinter, LuTarget } from "react-icons/lu";
 import { STATUS_DOT, Switch, buttonClass, iconButtonClass, inputClass, toggleClass } from "./ui";
@@ -58,6 +61,12 @@ const colBorder = "border-l border-slate-100 dark:border-slate-800";
 const SHADING_MIN_PX_PER_DAY = 3;
 
 const NO_GROUPS: ReadonlySet<string> = new Set();
+
+const LINK_COLOR = {
+  pred: "text-amber-500 dark:text-amber-400",
+  succ: "text-violet-500 dark:text-violet-400",
+  path: "text-cyan-500 dark:text-cyan-400",
+} as const;
 
 interface Props {
   schedule: ScheduleModel;
@@ -87,6 +96,9 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const [sortByDate, setSortByDate] = usePersistedBoolean("xerview-sort-date", false);
   const sortMode: ActivitySort = sortByDate ? "date" : "code";
   const [showLinks, setShowLinks] = useState(false);
+  // A driving-logic trace (see lib/drivingPath.ts) and whether the schedule is narrowed to its activities.
+  const [trace, setTrace] = useState<TraceSpec | null>(null);
+  const [pathOnly, setPathOnly] = useState(false);
   // A preference, so it is remembered: turning it on once should not need repeating after every reload.
   const [showNonWorking, setShowNonWorking] = usePersistedBoolean("xerview-show-non-working", false);
   // A line at today's date, from this computer's clock. Read again each time the switch is turned on.
@@ -128,15 +140,26 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     setAdvanced(EMPTY_FILTER);
     setZoom(null);
     setWbsDepth(null);
+    setTrace(null);
+    setPathOnly(false);
   }, [schedule]);
+
+  const traceResult = useMemo(() => (trace ? runTrace(schedule, trace) : null), [schedule, trace]);
+  const traceIds = traceResult && !traceResult.problem && traceResult.ids.size > 0 ? traceResult.ids : null;
 
   const dateRange = useMemo(() => toDateRange(dateFrom, dateTo, dateMode), [dateFrom, dateTo, dateMode]);
   const dateRangeInvalid = dateRange === "invalid";
   const activeRange = dateRange === "invalid" ? null : dateRange; // an inverted range filters nothing
   const compiled = useMemo(() => compileFilter(schedule, advanced), [schedule, advanced]);
+  // "Path only" is one more condition alongside the filter builder's.
+  const extraTest = useMemo(() => {
+    const built = compiled.predicate;
+    if (!pathOnly || !traceIds) return built;
+    return (a: Activity) => traceIds.has(a.id) && (!built || built(a));
+  }, [compiled, pathOnly, traceIds]);
   const predicate = useMemo(
-    () => makePredicate(filter, query, activeRange, compiled.predicate, searchGroups ? schedule : null),
-    [filter, query, activeRange, compiled, schedule, searchGroups],
+    () => makePredicate(filter, query, activeRange, extraTest, searchGroups ? schedule : null),
+    [filter, query, activeRange, extraTest, schedule, searchGroups],
   );
   // Which groups are closed. While a filter is active it has its own state, which starts fully open for each
   // new filter, so results are never hidden inside a group you collapsed under a different view. Your normal
@@ -218,21 +241,41 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const detailActivity = selected && selected.projectId === schedule.project.id ? selected : undefined;
 
   // ---- Dependency lines for the selected activity ---------------------------------
+  const linked = showLinks ? detailActivity : undefined; // the activity whose own links are drawn
   const links = useMemo(() => {
-    if (!showLinks || !detailActivity) return null;
+    if (!linked && !traceIds) return null;
     const rowIndex = new Map<string, number>();
     rows.forEach((r, i) => {
       if (r.kind === "task") rowIndex.set(r.task.id, i);
     });
     return buildLinks({
-      predecessors: schedule.predecessors.get(detailActivity.id) ?? [],
-      successors: schedule.successors.get(detailActivity.id) ?? [],
+      predecessors: (linked && schedule.predecessors.get(linked.id)) || [],
+      successors: (linked && schedule.successors.get(linked.id)) || [],
+      path: traceResult && traceIds ? traceResult.links.map((l) => l.rel) : [],
       activityById: schedule.activityById,
       rowIndex,
       x: timeline.x,
       rowH: ROW_H,
     });
-  }, [showLinks, detailActivity, rows, schedule, timeline]);
+  }, [linked, traceResult, traceIds, rows, schedule, timeline]);
+
+  const startTrace = (choice: TraceChoice) => {
+    if (!detailActivity) return;
+    setPathOnly(false);
+    setTrace(
+      choice === "between"
+        ? { kind: "between", fromId: detailActivity.id, toId: null }
+        : { kind: "driving", mode: choice, originId: detailActivity.id },
+    );
+  };
+  const closeTrace = () => {
+    setTrace(null);
+    setPathOnly(false);
+  };
+  // A "between" trace waits for its second activity: whatever is selected next, in the schedule or the trace list.
+  useEffect(() => {
+    setTrace((t) => (t && t.kind === "between" && t.toId === null && selectedId && selectedId !== t.fromId ? { ...t, toId: selectedId } : t));
+  }, [selectedId]);
 
   // ---- Non-working time (from the project's default calendar) ----------------------
   const pattern = schedule.defaultCalendar?.pattern ?? null;
@@ -334,7 +377,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   };
 
   const printToPdf = async () => {
-    const filters = { status: filter, query, searchGroups, dateFrom, dateTo, dateMode, advanced };
+    const filters = { status: filter, query, searchGroups, dateFrom, dateTo, dateMode, advanced, path: pathOnly && trace ? describeTrace(schedule, trace) : null };
     const pages = estimatePages(rows.length, describeFilters(filters).length ? 2 : 1);
     if (pages > 100 && !window.confirm(`This will make a PDF of about ${pages} A3 pages. Continue?`)) return;
     setPdfError(null);
@@ -490,6 +533,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
             enabled={enabledColumns}
             onToggle={(key, on) => setEnabledColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key)))}
           />
+          <TraceMenu disabled={!detailActivity} active={trace !== null} onPick={startTrace} />
           <span aria-hidden className="h-5 w-px bg-slate-300 dark:bg-slate-700" />
           <div className="flex items-center gap-3">
             <Switch
@@ -519,7 +563,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               title="Draw a line at today's date (from this computer's clock)"
             />
           </div>
-          {links && links.hidden > 0 && (
+          {linked && links && links.hidden > 0 && (
             <span
               className="text-xs text-amber-700 dark:text-amber-400"
               title="The other activity is filtered out, inside a collapsed group, undated, or in another project."
@@ -527,9 +571,17 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
               {links.hidden} link{links.hidden === 1 ? "" : "s"} not shown
             </span>
           )}
+          {links && links.pathHidden > 0 && (
+            <span
+              className="text-xs text-cyan-700 dark:text-cyan-400"
+              title="Part of the traced path is filtered out, inside a collapsed group, undated, or in another project."
+            >
+              {links.pathHidden} path link{links.pathHidden === 1 ? "" : "s"} not shown
+            </span>
+          )}
 
           <div className="ml-auto flex items-center gap-3">
-            <Legend links={links !== null} shading={shading.length > 0} today={todayInView} />
+            <Legend links={linked !== undefined} trace={traceIds !== null} shading={shading.length > 0} today={todayInView} />
             <div className="flex gap-1">
               <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 <LuMinus size={18} aria-hidden />
@@ -673,8 +725,8 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 viewBox={`0 ${links.top} ${timeline.width} ${links.height}`}
               >
                 {links.paths.map((p) => (
-                  <g key={p.key} className={p.kind === "pred" ? "text-amber-500 dark:text-amber-400" : "text-violet-500 dark:text-violet-400"}>
-                    <path d={p.d} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                  <g key={p.key} className={LINK_COLOR[p.kind]}>
+                    <path d={p.d} fill="none" stroke="currentColor" strokeWidth={p.kind === "path" ? 2 : 1.5} strokeLinejoin="round" />
                     <polygon points={p.arrow} fill="currentColor" />
                   </g>
                 ))}
@@ -692,6 +744,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 timeline={timeline}
                 dataDate={dataDate}
                 selected={row.kind === "task" && row.task.id === selectedId}
+                trace={traceIds === null || row.kind !== "task" ? null : traceIds.has(row.task.id) ? "on" : "off"}
                 columns={activeColumns}
                 onToggle={toggle}
                 onSelect={onSelect}
@@ -701,7 +754,21 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
         </div>
       </div>
 
-      {detailActivity && (
+      {trace && (
+        <TracePanel
+          schedule={schedule}
+          spec={trace}
+          result={traceResult}
+          selectedId={selectedId}
+          pathOnly={pathOnly}
+          onPathOnly={setPathOnly}
+          onSelect={onSelect}
+          onClose={closeTrace}
+        />
+      )}
+
+      {/* The trace takes the details panel's place while it is showing; closing it brings the details back. */}
+      {detailActivity && !trace && (
         <ActivityDetails
           key={detailActivity.id}
           schedule={schedule}
@@ -714,7 +781,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   );
 }
 
-function Legend({ links, shading, today }: { links: boolean; shading: boolean; today: boolean }) {
+function Legend({ links, trace, shading, today }: { links: boolean; trace: boolean; shading: boolean; today: boolean }) {
   const item = (swatch: string, label: string) => (
     <span className="flex items-center gap-1.5">
       <span className={swatch} />
@@ -732,6 +799,7 @@ function Legend({ links, shading, today }: { links: boolean; shading: boolean; t
       {item("size-2.5 rotate-45 bg-slate-800 dark:bg-slate-200", "Milestone")}
       {item("h-3 w-px bg-orange-500", "Data date")}
       {today && item("h-3 w-0 border-l-2 border-dashed border-fuchsia-500", "Today")}
+      {trace && item("h-3 w-4 rounded-sm outline outline-2 -outline-offset-1 outline-cyan-500", "Traced path")}
       {links && item("h-0.5 w-4 bg-amber-500", "Predecessor")}
       {links && item("h-0.5 w-4 bg-violet-500", "Successor")}
       {shading && item("h-2.5 w-4 rounded-sm border border-slate-300 bg-(--non-working) dark:border-slate-600", "Non-working")}
@@ -768,16 +836,21 @@ interface RowProps {
   timeline: Timeline;
   dataDate: number | null;
   selected: boolean;
+  /** Where the row sits against a traced path: on it, off it (dimmed), or null when no trace is showing. */
+  trace: "on" | "off" | null;
   columns: OptionalColumn[];
   onToggle: (id: string) => void;
   onSelect: (id: string | null) => void;
 }
 
-function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, columns, onToggle, onSelect }: RowProps) {
+function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, columns, onToggle, onSelect }: RowProps) {
   const isWbs = row.kind === "wbs";
+  const onPath = trace === "on" && !selected;
   const bg = selected
     ? "bg-accent-50 dark:bg-accent-950"
-    : isWbs
+    : onPath
+      ? "bg-cyan-50 dark:bg-cyan-950"
+      : isWbs
       ? "bg-slate-50 dark:bg-slate-900"
       : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
 
@@ -786,7 +859,7 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
   return (
     <div
       className={`group absolute left-0 flex border-b border-slate-100 text-xs dark:border-slate-800 ${
-        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
+        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
       }`}
       style={{ top, height: ROW_H, width: totalW }}
       onClick={handle}
@@ -795,8 +868,8 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
         {isWbs ? <WbsCells row={row} treeW={treeW} columns={columns} /> : <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} />}
       </div>
-      <div className="relative shrink-0 overflow-hidden" style={{ width: timeline.width }}>
-        {isWbs ? <SummaryBar node={row.node} timeline={timeline} /> : <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} />}
+      <div className={`relative shrink-0 overflow-hidden ${trace === "off" ? "opacity-30" : ""}`} style={{ width: timeline.width }}>
+        {isWbs ? <SummaryBar node={row.node} timeline={timeline} /> : <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} ring={trace === "on" ? RING : ""} />}
       </div>
     </div>
   );
@@ -892,7 +965,10 @@ function SummaryBar({ node, timeline }: { node: WbsNode; timeline: Timeline }) {
   );
 }
 
-function TaskBar({ task, timeline, dataDate }: { task: Activity; timeline: Timeline; dataDate: number | null }) {
+/** Outline for a bar on the traced path. */
+const RING = "outline outline-2 outline-cyan-500";
+
+function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline: Timeline; dataDate: number | null; ring: string }) {
   if (task.start === null || task.finish === null) return null;
   const title = `${task.code} ${task.name}\n${fmtDate(task.start)} → ${fmtDate(task.finish)}`;
 
@@ -901,7 +977,7 @@ function TaskBar({ task, timeline, dataDate }: { task: Activity; timeline: Timel
     const color = task.critical ? "bg-red-500" : task.status === "completed" ? "bg-emerald-600" : "bg-slate-800 dark:bg-slate-200";
     return (
       <>
-        <div className={`absolute size-2.5 rotate-45 ${color}`} style={{ left: x - 5, top: (ROW_H - 10) / 2 }} title={title} />
+        <div className={`absolute size-2.5 rotate-45 ${color} ${ring}`} style={{ left: x - 5, top: (ROW_H - 10) / 2 }} title={title} />
         <BarLabel x={x + 9} text={task.name} />
       </>
     );
@@ -913,7 +989,7 @@ function TaskBar({ task, timeline, dataDate }: { task: Activity; timeline: Timel
   if (task.type === "loe") {
     return (
       <>
-        <div className="absolute h-1.5 rounded-sm bg-teal-500" style={{ left: x1, width: x2 - x1, top: (ROW_H - 6) / 2 }} title={title} />
+        <div className={`absolute h-1.5 rounded-sm bg-teal-500 ${ring}`} style={{ left: x1, width: x2 - x1, top: (ROW_H - 6) / 2 }} title={title} />
         <BarLabel x={x2 + 6} text={task.name} />
       </>
     );
@@ -931,7 +1007,7 @@ function TaskBar({ task, timeline, dataDate }: { task: Activity; timeline: Timel
 
   return (
     <>
-      <div className="absolute flex h-3 overflow-hidden rounded-sm" style={{ left: x1, width: x2 - x1, top: (ROW_H - 12) / 2 }} title={title}>
+      <div className={`absolute flex h-3 overflow-hidden rounded-sm ${ring}`} style={{ left: x1, width: x2 - x1, top: (ROW_H - 12) / 2 }} title={title}>
         <div className={actualColor} style={{ width: split - x1 }} />
         <div className={`${remainingColor} flex-1`} />
       </div>
