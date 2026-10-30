@@ -40,8 +40,8 @@ import { FitViewButton } from "./FitViewButton";
 import { TraceMenu, type TraceChoice } from "./TraceMenu";
 import { TracePanel } from "./TracePanel";
 import { WbsLevelSelect } from "./WbsLevelSelect";
-import { LuChevronsDown, LuChevronsUp, LuMinus, LuPlus, LuPrinter, LuTarget } from "react-icons/lu";
-import { STATUS_DOT, Switch, buttonClass, iconButtonClass, inputClass, toggleClass } from "./ui";
+import { LuChevronsDown, LuChevronsUp, LuFilter, LuMinus, LuPlus, LuPrinter, LuTarget } from "react-icons/lu";
+import { STATUS_DOT, Switch, badgeClass, buttonClass, iconButtonClass, iconToggleClass, inputClass } from "./ui";
 
 const ROW_H = 26;
 const HEADER_H = 44;
@@ -499,12 +499,14 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
 
           <button
             type="button"
-            className={toggleClass(showBuilder || compiled.active > 0)}
+            className={`${iconToggleClass(showBuilder || compiled.active > 0)} relative`}
             aria-expanded={showBuilder}
+            aria-label={compiled.active > 0 ? `Filters (${compiled.active} in use)` : "Filters"}
             onClick={() => setShowBuilder((v) => !v)}
-            title="Filter by activity code, task or WBS"
+            title={compiled.active > 0 ? `Filters: ${compiled.active} in use. Filter by activity code, task or WBS` : "Filters: filter by activity code, task or WBS"}
           >
-            Filters{compiled.active > 0 ? ` (${compiled.active})` : ""}
+            <LuFilter size={16} aria-hidden />
+            {compiled.active > 0 && <span className={badgeClass}>{compiled.active}</span>}
           </button>
 
           <DateRangeChip

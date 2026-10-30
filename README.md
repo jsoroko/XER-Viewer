@@ -19,7 +19,7 @@ the browser and never leaves your machine, so there is no backend.
   filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
   - **Dependency lines** – switch **Links** on, then select an activity to draw its predecessors (amber) and successors (violet) with
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
-  - **Trace driving logic** – select an activity, then **Trace** and choose **Backward** (what drives it: its
+  - **Trace driving logic** – select an activity, then the **Trace** (route) icon and choose **Backward** (what drives it: its
     driving predecessors, and theirs, back to where the chain starts), **Forward** (what it drives) or
     **Combined** (both: the whole chain through it). **Between two…** takes a second activity, selected next in the
     schedule, and shows the driving chain between them whichever comes first. If neither drives the other it shows
@@ -35,9 +35,9 @@ the browser and never leaves your machine, so there is no backend.
     left out. Relationships to undated activities can't be measured and break the chain. Unlike P6's own Longest
     Path / Multiple Float Paths, which are worked out for one end activity when the schedule is calculated, this
     works for any activity in any exported file.
-  - **Date range filter** – the **Dates** button (it shows the current range) opens From/To (either can be left open)
+  - **Date range filter** – the **Dates** (calendar) icon (hover for the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
-    scrolled into view. **Fit View** fits the whole project; once a range is set, or a search, filter or trace leaves
+    scrolled into view. **Fit View** (the corners icon beside zoom) fits the whole project; once a range is set, or a search, filter or trace leaves
     rows covering less than the whole project, it opens a menu offering *Project Duration*, *Selected Dates*,
     *Visible Rows* (the period everything on screen covers, group rows included) and *Visible Activities* (just
     the activities, offered when the group rows above them reach further, which they do whenever a filter or
@@ -67,7 +67,7 @@ the browser and never leaves your machine, so there is no backend.
     flips upward. The first choice, **No groups**, drops every group row and lists just the activities in one flat list (by
     date, the whole list is sorted together), which suits a trace or search whose results are scattered. Resets to the file's deepest
     level (showing everything) for a new project.
-  - **Filter builder** – the **Filters** button opens a panel where you combine any number of conditions
+  - **Filter builder** – the **Filters** (funnel) icon, which carries the number of conditions in use, opens a panel where you combine any number of conditions
     (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
     they read: **Activity codes** (Activity ID, Activity Code, Activity Name, Activity Type ID, Activity Type Name),
     **Task** (Task ID, Task Code, Task Name) and **WBS** (WBS ID, WBS Code, WBS Name; these match an activity's own

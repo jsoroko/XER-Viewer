@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { LuChevronDown, LuRoute } from "react-icons/lu";
-import { buttonClass, toggleClass } from "./ui";
+import { LuRoute } from "react-icons/lu";
+import { iconToggleClass } from "./ui";
 
 export type TraceChoice = "backward" | "forward" | "combined" | "between";
 
@@ -24,7 +24,7 @@ const optionClass =
 
 /**
  * Starts a driving-logic trace from the selected activity (see lib/drivingPath.ts). Opens as a menu below the
- * button, like the other toolbar menus, so it always opens downward.
+ * icon button, like the other toolbar menus, so it always opens downward.
  */
 export function TraceMenu({ disabled, active, onPick }: Props) {
   const [open, setOpen] = useState(false);
@@ -48,16 +48,15 @@ export function TraceMenu({ disabled, active, onPick }: Props) {
     <div ref={box} className="relative">
       <button
         type="button"
-        className={`${active ? toggleClass(true) : buttonClass} gap-1.5`}
+        className={iconToggleClass(active)}
+        aria-label="Trace driving logic"
         aria-haspopup="true"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
         title={disabled ? "Select an activity first, then trace the logic that drives it" : "Trace the driving logic around the selected activity"}
       >
-        <LuRoute size={14} aria-hidden />
-        Trace
-        <LuChevronDown size={14} aria-hidden />
+        <LuRoute size={16} aria-hidden />
       </button>
 
       {open && (

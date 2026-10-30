@@ -117,3 +117,8 @@ export const iconToggleClass = (on: boolean) =>
   (on
     ? "border-accent-500 bg-accent-50 text-accent-700 hover:bg-accent-100 dark:border-accent-500 dark:bg-accent-950 dark:text-accent-300 dark:hover:bg-accent-900"
     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800");
+
+/** A small count or dot pinned to the corner of an icon button (the number of filters in use, say). */
+export const badgeClass =
+  "pointer-events-none absolute -right-1.5 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-accent-600 px-1 " +
+  "text-[10px] font-semibold leading-4 text-white";

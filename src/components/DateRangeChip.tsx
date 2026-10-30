@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { LuCalendarDays, LuChevronDown } from "react-icons/lu";
+import { LuCalendarDays } from "react-icons/lu";
 import { DATE_MODE_LABEL, describeDateRange, type DateMode } from "../lib/scheduleRows";
-import { buttonClass, inputClass, toggleClass } from "./ui";
+import { buttonClass, iconToggleClass, inputClass } from "./ui";
 
 /** Matches the panel's w-72 (18rem). */
 const PANEL_WIDTH = 288;
@@ -19,13 +19,14 @@ interface Props {
   onClear: () => void;
 }
 
-/** A button that shows the current date range and opens a small panel to change it. */
+/** An icon button that opens a small panel to set the date range; the current range is in its tooltip. */
 export function DateRangeChip({ from, to, mode, invalid, onFrom, onTo, onMode, onClear }: Props) {
   const [open, setOpen] = useState(false);
   // Open the panel towards the left when the chip is too close to the window's right edge for it to fit.
   const [alignRight, setAlignRight] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const isSet = Boolean(from || to);
+  const summary = invalid ? "From is after To" : describeDateRange(from, to);
 
   useEffect(() => {
     if (!open) return;
@@ -54,12 +55,11 @@ export function DateRangeChip({ from, to, mode, invalid, onFrom, onTo, onMode, o
           setAlignRight(left + PANEL_WIDTH + 8 > window.innerWidth);
           setOpen((v) => !v);
         }}
-        title="Show only activities in a date range"
-        className={`${toggleClass(open || isSet)} max-w-64 gap-1.5 ${invalid ? "!border-red-500 !text-red-700 dark:!text-red-300" : ""}`}
+        aria-label={`Date range: ${summary}`}
+        title={`Dates: ${summary}. Show only activities in a date range`}
+        className={`${iconToggleClass(open || isSet)} ${invalid ? "!border-red-500 !text-red-700 dark:!text-red-300" : ""}`}
       >
-        <LuCalendarDays size={14} aria-hidden />
-        <span className="truncate">{invalid ? "From is after To" : describeDateRange(from, to)}</span>
-        <LuChevronDown size={14} aria-hidden />
+        <LuCalendarDays size={16} aria-hidden />
       </button>
 
       {open && (

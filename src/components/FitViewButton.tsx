@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { LuChevronDown } from "react-icons/lu";
-import { buttonClass } from "./ui";
+import { LuMaximize } from "react-icons/lu";
+import { iconButtonClass } from "./ui";
 
 interface Props {
   /** A date range is selected, so there is something other than the whole project to fit to. */
@@ -54,8 +54,15 @@ export function FitViewButton({ hasRange, hasRows, hasActivities, fitted, onFitP
 
   if (!menu) {
     return (
-      <button type="button" className={buttonClass} onClick={onFitProject} aria-pressed={fitted} title="Fit the whole project in the window">
-        Fit View
+      <button
+        type="button"
+        className={iconButtonClass}
+        onClick={onFitProject}
+        aria-pressed={fitted}
+        aria-label="Fit view"
+        title="Fit View: fit the whole project in the window"
+      >
+        <LuMaximize size={18} aria-hidden />
       </button>
     );
   }
@@ -64,14 +71,14 @@ export function FitViewButton({ hasRange, hasRows, hasActivities, fitted, onFitP
     <div ref={box} className="relative">
       <button
         type="button"
-        className={buttonClass}
+        className={iconButtonClass}
+        aria-label="Fit view"
         aria-haspopup="menu"
         aria-expanded={shown}
         onClick={() => setOpen((v) => !v)}
-        title="Fit the chart to the whole project, the selected dates or the rows shown"
+        title="Fit View: fit the chart to the whole project, the selected dates or the rows shown"
       >
-        Fit View
-        <LuChevronDown size={14} aria-hidden />
+        <LuMaximize size={18} aria-hidden />
       </button>
 
       {shown && (
