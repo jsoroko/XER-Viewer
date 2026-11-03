@@ -59,5 +59,6 @@ await Bun.write("CHANGELOG.md", at < 0 ? `${log.trimEnd()}\n\n${entry}` : `${log
 
 must(["git", "add", "package.json", "CHANGELOG.md"]);
 must(["git", "commit", "-m", `Release ${next}`]);
-must(["git", "tag", `v${next}`]);
+// Annotated, so that `git push --follow-tags` sends it.
+must(["git", "tag", "-a", `v${next}`, "-m", `Release ${next}`]);
 console.log(`Released ${next}. Push it with:\n  git push origin main --follow-tags`);
