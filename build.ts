@@ -18,6 +18,8 @@ const result = await Bun.build({
   sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
+    // When this build was made, shown in the version's tooltip.
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },
 });
 

@@ -10,8 +10,7 @@ import { Switch, buttonClass, iconButtonClass } from "./ui";
 interface Props {
   schedule: Schedule;
   spec: TraceSpec;
-  /** Null while a "between" trace waits for its second activity. */
-  result: TraceResult | null;
+  result: TraceResult;
   selectedId: string | null;
   pathOnly: boolean;
   onPathOnly: (on: boolean) => void;
@@ -32,12 +31,10 @@ const td = "px-2 py-1 text-xs";
  * shows the path (cyan outlines, links drawn between the steps, everything else dimmed); this is the readable record.
  */
 export function TracePanel({ schedule, spec, result, selectedId, pathOnly, onPathOnly, onSelect, onClose }: Props) {
-  const steps = useMemo(() => (result ? traceSteps(schedule, result) : []), [schedule, result]);
+  const steps = useMemo(() => traceSteps(schedule, result), [schedule, result]);
   const summary = useMemo(() => summarizeTrace(steps), [steps]);
-  const waiting = spec.kind === "between" && spec.toId === null;
-  const origin = schedule.activityById.get(spec.kind === "driving" ? spec.originId : spec.fromId);
-  const dayHrs = origin?.dayHrs ?? 8;
-  const found = result !== null && result.problem === null && steps.length > 0;
+  const origin = schedule.activityById.get(spec.originId);
+  const found = result.problem === null && steps.length > 0;
 
   return (
     <section
@@ -45,7 +42,7 @@ export function TracePanel({ schedule, spec, result, selectedId, pathOnly, onPat
       className="flex max-h-72 min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 px-3 py-1.5 dark:border-slate-800">
-        <h3 className="text-sm font-semibold">{describeTrace(schedule, spec, result)}</h3>
+        <h3 className="text-sm font-semibold">{describeTrace(schedule, spec)}</h3>
         {found && (
           <span className="text-xs text-slate-500 dark:text-slate-400">
             {summary.count} {summary.count === 1 ? "activity" : "activities"}
@@ -77,24 +74,13 @@ export function TracePanel({ schedule, spec, result, selectedId, pathOnly, onPat
         </div>
       </div>
 
-      {waiting && (
-        <p className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
-          Now select the second activity in the schedule. The path between {code(schedule, spec.fromId)} and it is worked out as soon as you do.
-        </p>
-      )}
-      {result?.problem && <p className="px-3 py-3 text-sm text-amber-700 dark:text-amber-400">{result.problem}</p>}
-      {result && !result.problem && !result.driving && (
-        <p className="border-b border-slate-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-slate-800 dark:bg-amber-950/40 dark:text-amber-300">
-          Neither activity drives the other. This is the closest route through the logic, with {fmtDays(result.floatHrs, dayHrs) || "0d"} of float along
-          it.
-        </p>
-      )}
-      {result && result.approximate && (
+      {result.problem && <p className="px-3 py-3 text-sm text-amber-700 dark:text-amber-400">{result.problem}</p>}
+      {result.approximate && (
         <p className="border-b border-slate-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-slate-800 dark:bg-amber-950/40 dark:text-amber-300">
           A calendar in this file couldn't be read, so elapsed time was used for some relationships; weekends may appear as float.
         </p>
       )}
-      {result && !result.problem && steps.length === 1 && (
+      {!result.problem && steps.length === 1 && (
         <p className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
           Nothing drives or is driven by {steps[0]!.activity.code} in this direction: every relationship on it has float.
         </p>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeTrace, runTrace, summarizeTrace, traceBetween, traceDriving, traceSteps } from "./drivingPath";
+import { describeTrace, runTrace, summarizeTrace, traceDriving, traceSteps } from "./drivingPath";
 import type { WorkPattern } from "./xer/calendar";
 import type { Activity, Relationship, RelationshipType, Schedule } from "./xer/model";
 
@@ -243,115 +243,11 @@ describe("traceDriving", () => {
   });
 });
 
-describe("traceBetween", () => {
-  test("the driving chain between two activities, in whichever order they are given", () => {
-    for (const [a, b] of [
-      ["A", "E"],
-      ["E", "A"],
-    ] as const) {
-      const r = traceBetween(schedule(), a, b);
-      expect(r.driving).toBe(true);
-      expect(codes(r.ids)).toEqual(["A", "B", "D", "E"]);
-      expect(r.from).toBe("A");
-      expect(r.to).toBe("E");
-    }
-  });
-
-  test("leaves out activities that drive the end but are not driven by the start", () => {
-    // B drives D and so does C's slack-free twin below, but only B sits between B and E.
-    const r = traceBetween(schedule(), "B", "E");
-    expect(codes(r.ids)).toEqual(["B", "D", "E"]);
-  });
-
-  test("when neither drives the other, the route with the least float is returned with its total", () => {
-    const r = traceBetween(schedule(), "C", "E");
-    expect(r.driving).toBe(false);
-    expect(r.floatHrs).toBe(18);
-    expect(codes(r.ids)).toEqual(["C", "D", "E"]);
-    expect(r.from).toBe("C");
-    expect(r.to).toBe("E");
-  });
-
-  test("picks the lower-float of several routes", () => {
-    // Both routes end at T on Friday, but X is the longer piece of work, so going through it leaves less slack.
-    const s = network(
-      [
-        { code: "S", start: at(5), finish: at(5, 17) },
-        { code: "X", start: at(6), finish: at(7, 17) }, // starts as S finishes
-        { code: "Y", start: at(8), finish: at(8, 17) }, // 18h after S
-        { code: "T", start: at(9), finish: at(9, 17) },
-      ],
-      [
-        ["S", "X"],
-        ["S", "Y"],
-        ["X", "T"], // Wednesday evening to Friday morning: 9h
-        ["Y", "T"], // 0h
-      ],
-    );
-    const r = traceBetween(s, "S", "T");
-    expect(r.driving).toBe(false);
-    expect(r.links.map((l) => l.rel.predTaskId + l.rel.taskId)).toEqual(["SX", "XT"]);
-    expect(r.floatHrs).toBe(9);
-  });
-
-  test("a link that is already late counts as no float when comparing routes", () => {
-    // X starts before S finishes (out of sequence). Without clamping, that -9h would hide the 9h still owed after X.
-    const s = network(
-      [
-        { code: "S", start: at(5), finish: at(5, 17) },
-        { code: "X", start: at(5), finish: at(6, 17) },
-        { code: "Y", start: at(6, 13), finish: at(7, 17) },
-        { code: "T", start: at(8), finish: at(8, 17) },
-      ],
-      [
-        ["S", "X"], // -9h
-        ["X", "T"], // 9h
-        ["S", "Y"], // 5h
-        ["Y", "T"], // 0h
-      ],
-    );
-    const r = traceBetween(s, "S", "T");
-    expect(r.driving).toBe(false);
-    expect(r.links.map((l) => l.rel.predTaskId + l.rel.taskId)).toEqual(["SY", "YT"]);
-    expect(r.floatHrs).toBe(5);
-  });
-
-  test("where the logic loops, the route with less float wins whichever way it runs", () => {
-    const s = network(
-      [
-        { code: "S", start: at(5), finish: at(5, 17) },
-        { code: "T", start: at(8), finish: at(8, 17) },
-      ],
-      [
-        ["S", "T", "SS", 0], // 27h
-        ["T", "S", "SS", -45], // 18h
-      ],
-    );
-    const r = traceBetween(s, "S", "T");
-    expect(r.driving).toBe(false);
-    expect(r.floatHrs).toBe(18);
-    expect(r.from).toBe("T");
-    expect(r.to).toBe("S");
-  });
-
-  test("activities the logic does not connect", () => {
-    const r = traceBetween(schedule(), "C", "A");
-    expect(r.links).toEqual([]);
-    expect(r.problem).toMatch(/doesn't connect C and A/);
-  });
-
-  test("the same activity twice, or an unknown one", () => {
-    expect(traceBetween(schedule(), "A", "A").problem).toMatch(/two different/);
-    expect(traceBetween(schedule(), "A", "zzz").problem).toMatch(/isn't in this file/);
-  });
-});
-
 describe("runTrace", () => {
-  test("dispatches on the spec, and waits while the second activity is unchosen", () => {
+  test("runs the trace the spec describes", () => {
     const s = schedule();
-    expect(codes(runTrace(s, { kind: "driving", mode: "forward", originId: "D" })!.ids)).toEqual(["D", "E", "F"]);
-    expect(runTrace(s, { kind: "between", fromId: "A", toId: null })).toBeNull();
-    expect(runTrace(s, { kind: "between", fromId: "A", toId: "E" })!.driving).toBe(true);
+    expect(codes(runTrace(s, { mode: "forward", originId: "D" }).ids)).toEqual(["D", "E", "F"]);
+    expect(codes(runTrace(s, { mode: "backward", originId: "E" }).ids)).toEqual(["A", "B", "D", "E"]);
   });
 });
 
@@ -378,13 +274,9 @@ describe("traceSteps and summarizeTrace", () => {
 });
 
 describe("describeTrace", () => {
-  test("names each kind of trace, and the order once a between trace has worked out which way it runs", () => {
+  test("names the trace by its mode and the activity it starts from", () => {
     const s = schedule();
-    expect(describeTrace(s, { kind: "driving", mode: "backward", originId: "E" })).toBe("Backward trace from E");
-    expect(describeTrace(s, { kind: "driving", mode: "combined", originId: "D" })).toBe("Combined trace from D");
-    expect(describeTrace(s, { kind: "between", fromId: "A", toId: null })).toBe("Trace from A to…");
-    const spec = { kind: "between" as const, fromId: "E", toId: "A" };
-    expect(describeTrace(s, spec)).toBe("E and A");
-    expect(describeTrace(s, spec, runTrace(s, spec))).toBe("A → E");
+    expect(describeTrace(s, { mode: "backward", originId: "E" })).toBe("Backward trace from E");
+    expect(describeTrace(s, { mode: "combined", originId: "D" })).toBe("Combined trace from D");
   });
 });

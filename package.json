@@ -1,6 +1,6 @@
 {
   "name": "xer-viewer",
-  "version": "0.1.0",
+  "version": "26.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,8 @@
     "build": "bun run build.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "sample": "bun scripts/generate-sample.ts"
+    "sample": "bun scripts/generate-sample.ts",
+    "release": "bun scripts/release.ts"
   },
   "dependencies": {
     "bun-plugin-tailwind": "^0.1.2",

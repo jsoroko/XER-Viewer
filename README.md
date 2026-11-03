@@ -19,17 +19,17 @@ the browser and never leaves your machine, so there is no backend.
   filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
   - **Dependency lines** – switch **Links** on, then select an activity to draw its predecessors (amber) and successors (violet) with
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
-  - **Trace driving logic** – select an activity, then the **Trace** (route) icon and choose **Backward** (what drives it: its
-    driving predecessors, and theirs, back to where the chain starts), **Forward** (what it drives) or
-    **Combined** (both: the whole chain through it). **Between two…** takes a second activity, selected next in the
-    schedule, and shows the driving chain between them whichever comes first. If neither drives the other it shows
-    the route with the least total float and says how much. A relationship *drives* when it has no relationship
+  - **Trace driving logic** – click the **Trace** (route) icon, which is always available. Choose where to trace from, **Selected** (the
+    activity selected in the schedule) or **By ID** (type an activity ID or part of a name and pick from the matches;
+    Enter takes the first), and a direction: **Backward** (what drives it: its driving predecessors, and theirs, back
+    to where the chain starts), **Forward** (what it drives) or **Combined** (both: the whole chain through it).
+    The direction is remembered, and the activity traced from becomes the selected one and is scrolled to. A relationship *drives* when it has no relationship
     float: the successor's date is exactly what the predecessor's date plus lag asks for. That is measured in working
     time on the predecessor's calendar (P6's default calendar for lag) from the dates already in the file, so
     calendars, lags, constraints and progress are respected, and nothing is rescheduled. Tied chains are all
     shown. The path is outlined on the chart with its links drawn in cyan, every other row is dimmed, and a panel
     (which takes the details panel's place until you close it) lists each step in date order with the relationship
-    that feeds it, its float and the path's overall span; click a step to select it. **Path only** narrows the
+    that feeds it, its float and the path's overall span; click a step to select it and the schedule scrolls to it, rows and bar. **Path only** narrows the
     schedule, WBS groups included, to the path, and the PDF header says so; **CSV** downloads the steps.
     Level-of-effort and WBS summary activities take their dates from other activities, so they never drive and are
     left out. Relationships to undated activities can't be measured and break the chain. Unlike P6's own Longest
@@ -122,6 +122,22 @@ bun run build      # static site in dist/ — host it anywhere
 
 Click **Try a sample project** on the start screen to explore without a file.
 
+## Versioning
+
+The version is `YY.MAJOR.MINOR` (for example `26.1.0`): the two-digit year, then a major and a minor release counter
+that both start again each January, so the first release of a year is always `YY.1.0`. **Major** is a significant new
+capability or redesign; **minor** is a smaller feature, improvement or fix. It lives in `package.json`, and the start
+screen shows it after the credit line, with the build date in its tooltip.
+
+```bash
+bun run release minor            # or: major. Commit your changes first
+git push origin main --follow-tags
+```
+
+`bun run release` works out the next version (restarting at `YY.1.0` in a new year), updates `package.json`, adds an entry
+to [CHANGELOG.md](CHANGELOG.md) listing the commits since the last release, then commits and tags `vYY.M.N`. Add
+`--dry-run` to see what it would do. It never pushes.
+
 ## Deployment
 
 The build output is a static site. For hosting on a Raspberry Pi behind Cloudflare Tunnel and Nginx, with the
@@ -137,7 +153,8 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale (and the fit-to-range margin logic), windowing |
 | `src/lib/advancedFilter.ts` | Filter-builder fields, operators and evaluation |
 | `src/lib/links.ts` | Orthogonal routing for the dependency lines (and the traced path's links) |
-| `src/lib/drivingPath.ts`, `traceCsv.ts` | Driving-logic tracing (backward / forward / combined / between two activities), its step list and CSV |
+| `src/lib/drivingPath.ts`, `activityLookup.ts`, `traceCsv.ts` | Driving-logic tracing (backward / forward / combined), its step list and CSV |
+| `src/lib/version.ts`, `appVersion.ts`, `scripts/release.ts` | Version numbering, the version and build date shown on the start screen, the release command |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
 | `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file; load / restore / close flow |

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { downloadBlob } from "../lib/csv";
-import { describeTrace, runTrace, type TraceSpec } from "../lib/drivingPath";
+import { describeTrace, runTrace, type TraceMode, type TraceSpec } from "../lib/drivingPath";
 import { buildLinks } from "../lib/links";
 import { buildPdf, describeFilters, estimatePages, safeFileName } from "../lib/printPdf";
 import {
@@ -37,7 +37,7 @@ import { ColumnsMenu } from "./ColumnsMenu";
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
 import { FitViewButton } from "./FitViewButton";
-import { TraceMenu, type TraceChoice } from "./TraceMenu";
+import { TraceMenu } from "./TraceMenu";
 import { TracePanel } from "./TracePanel";
 import { WbsLevelSelect } from "./WbsLevelSelect";
 import { LuChevronsDown, LuChevronsUp, LuFilter, LuMinus, LuPlus, LuPrinter, LuTarget } from "react-icons/lu";
@@ -241,7 +241,24 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     if (i < 0) return;
     scrollTarget.current = null;
     scrollToIndex(i, HEADER_H);
-  }, [rows, scrollToIndex, viewHeight]);
+
+    // And sideways, to the activity's bar: left alone when it is already on screen, otherwise centred (or, for a bar
+    // wider than the view, its start). The table on the left is sticky, so the chart's visible part starts after it.
+    const el = virtual.ref.current;
+    const task = schedule.activityById.get(target);
+    if (!el || !task || task.start === null || task.finish === null) return;
+    const barL = leftW + timeline.x(task.start);
+    const barR = leftW + Math.max(timeline.x(task.finish), timeline.x(task.start) + 3);
+    const viewL = el.scrollLeft + leftW;
+    const viewR = el.scrollLeft + el.clientWidth;
+    if (barL >= viewL && barR <= viewR) return;
+    const room = el.clientWidth - leftW;
+    const left = barR - barL < room ? (barL + barR) / 2 - leftW - room / 2 : barL - leftW - 40;
+    // Smooth for a short hop; a jump across years would take seconds, so that one is immediate.
+    el.scrollTo({ left: Math.max(0, left), behavior: Math.abs(left - el.scrollLeft) > 3 * room ? "auto" : "smooth" });
+    // Only when there is a new target (a selection or arrow key), not whenever the timeline or widths change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, scrollToIndex, viewHeight, selectedId]);
 
   const selected = selectedId ? schedule.activityById.get(selectedId) : undefined;
   const detailActivity = selected && selected.projectId === schedule.project.id ? selected : undefined;
@@ -265,23 +282,16 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
     });
   }, [linked, traceResult, traceIds, rows, schedule, timeline]);
 
-  const startTrace = (choice: TraceChoice) => {
-    if (!detailActivity) return;
+  const startTrace = (originId: string, mode: TraceMode) => {
     setPathOnly(false);
-    setTrace(
-      choice === "between"
-        ? { kind: "between", fromId: detailActivity.id, toId: null }
-        : { kind: "driving", mode: choice, originId: detailActivity.id },
-    );
+    setTrace({ mode, originId });
+    // Make the starting activity the selected one (and bring it into view), as when it is picked by ID.
+    onSelect(originId);
   };
   const closeTrace = () => {
     setTrace(null);
     setPathOnly(false);
   };
-  // A "between" trace waits for its second activity: whatever is selected next, in the schedule or the trace list.
-  useEffect(() => {
-    setTrace((t) => (t && t.kind === "between" && t.toId === null && selectedId && selectedId !== t.fromId ? { ...t, toId: selectedId } : t));
-  }, [selectedId]);
 
   // ---- Non-working time (from the project's default calendar) ----------------------
   const pattern = schedule.defaultCalendar?.pattern ?? null;
@@ -423,7 +433,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
           shadeNonWorking: showNonWorking && pattern !== null,
           trace:
             trace && traceResult && traceIds
-              ? { label: describeTrace(schedule, trace, traceResult), ids: traceIds, links: traceResult.links.map((l) => l.rel) }
+              ? { label: describeTrace(schedule, trace), ids: traceIds, links: traceResult.links.map((l) => l.rel) }
               : null,
         },
         { onProgress: (done, total) => setPdfProgress({ done, total }) },
@@ -576,7 +586,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
             enabled={enabledColumns}
             onToggle={(key, on) => setEnabledColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key)))}
           />
-          <TraceMenu disabled={!detailActivity} active={trace !== null} onPick={startTrace} />
+          <TraceMenu schedule={schedule} selected={detailActivity} active={trace !== null} onTrace={startTrace} />
           <span aria-hidden className="h-5 w-px bg-slate-300 dark:bg-slate-700" />
           <div className="flex items-center gap-3">
             <Switch
@@ -801,7 +811,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
         </div>
       </div>
 
-      {trace && (
+      {trace && traceResult && (
         <TracePanel
           schedule={schedule}
           spec={trace}
