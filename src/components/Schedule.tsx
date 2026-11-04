@@ -11,7 +11,11 @@ import { buildPdf, describeFilters, estimatePages, safeFileName } from "../lib/p
 import {
   ACTIVITY_FILTERS,
   buildRows,
+  canCollapseWithin,
+  canExpandWithin,
+  collapseWithin,
   collapsibleIds,
+  expandWithin,
   makePredicate,
   maxWbsDepth,
   toDateRange,
@@ -47,7 +51,7 @@ import { FitViewButton } from "./FitViewButton";
 import { TraceMenu } from "./TraceMenu";
 import { TracePanel } from "./TracePanel";
 import { WbsLevelSelect } from "./WbsLevelSelect";
-import { LuChevronsDown, LuChevronsUp, LuFilter, LuMinus, LuPlus, LuPrinter, LuTarget } from "react-icons/lu";
+import { LuChevronsDown, LuChevronsUp, LuFilter, LuFoldVertical, LuMinus, LuPlus, LuPrinter, LuTarget, LuUnfoldVertical } from "react-icons/lu";
 import { STATUS_DOT, Switch, badgeClass, buttonClass, iconButtonClass, iconToggleClass, inputClass } from "./ui";
 
 const ROW_H = 26;
@@ -105,6 +109,9 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   // A driving-logic trace (see lib/drivingPath.ts) and whether the schedule is narrowed to its activities.
   const [trace, setTrace] = useState<TraceSpec | null>(null);
   const [pathOnly, setPathOnly] = useState(false);
+  // A WBS group selected by clicking its name, for "expand / collapse everything inside it". Only one of an activity and a
+  // group is selected at a time.
+  const [groupId, setGroupId] = useState<string | null>(null);
   // A preference, so it is remembered: turning it on once should not need repeating after every reload.
   const [showNonWorking, setShowNonWorking] = usePersistedBoolean("xerview-show-non-working", false);
   // A line at today's date, from this computer's clock. Read again each time the switch is turned on.
@@ -162,7 +169,13 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
     setWbsDepth(null);
     setTrace(null);
     setPathOnly(false);
+    setGroupId(null);
   }, [schedule]);
+
+  // Selecting an activity lets go of the selected group.
+  useEffect(() => {
+    if (selectedId) setGroupId(null);
+  }, [selectedId]);
 
   const traceResult = useMemo(() => (trace ? runTrace(schedule, trace) : null), [schedule, trace]);
   const traceIds = traceResult && !traceResult.problem && traceResult.ids.size > 0 ? traceResult.ids : null;
@@ -352,6 +365,24 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
     [updateCollapsed],
   );
 
+  const group = groupId ? (schedule.wbs.get(groupId) ?? null) : null;
+  const selectGroup = (id: string) => {
+    setGroupId(id);
+    onSelect(null); // the details panel is for activities
+  };
+  const expandGroup = (id: string) => {
+    const node = schedule.wbs.get(id);
+    if (!node) return;
+    selectGroup(id);
+    updateCollapsed((prev) => expandWithin(prev, node));
+  };
+  const collapseGroup = (id: string) => {
+    const node = schedule.wbs.get(id);
+    if (!node) return;
+    selectGroup(id);
+    updateCollapsed((prev) => collapseWithin(prev, node));
+  };
+
   const scrollToDataDate = () => {
     const el = virtual.ref.current;
     if (!el || dataDate === null) return;
@@ -422,6 +453,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
       onSelect(null);
+      setGroupId(null);
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -633,6 +665,27 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
               title="Collapse all groups"
             >
               <LuChevronsUp size={18} aria-hidden />
+            </button>
+            <span aria-hidden className="mx-0.5 w-px self-stretch bg-slate-300 dark:bg-slate-700" />
+            <button
+              type="button"
+              className={iconButtonClass}
+              onClick={() => group && expandGroup(group.id)}
+              disabled={!group || !canExpandWithin(collapsed, group)}
+              aria-label="Expand everything inside the selected group"
+              title={group ? `Expand everything inside “${group.name}”` : "Expand everything inside a group: click a group's name to select it first"}
+            >
+              <LuUnfoldVertical size={18} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={iconButtonClass}
+              onClick={() => group && collapseGroup(group.id)}
+              disabled={!group || !canCollapseWithin(collapsed, group)}
+              aria-label="Collapse everything inside the selected group"
+              title={group ? `Collapse everything inside “${group.name}”` : "Collapse everything inside a group: click a group's name to select it first"}
+            >
+              <LuFoldVertical size={18} aria-hidden />
             </button>
           </div>
           {wbsLevels > 0 && <WbsLevelSelect levels={wbsLevels} value={wbsDepth ?? wbsLevels} onChange={setWbsDepth} />}
@@ -898,7 +951,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 totalW={totalW}
                 timeline={timeline}
                 dataDate={dataDate}
-                selected={row.kind === "task" && row.task.id === selectedId}
+                selected={row.kind === "task" ? row.task.id === selectedId : row.node.id === groupId}
                 trace={
                   (traceIds === null && !comparedTrace?.droppedIds.size) || row.kind !== "task"
                     ? null
@@ -915,6 +968,9 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 compareColumns={activeCompareColumns}
                 onToggle={toggle}
                 onSelect={onSelect}
+                onSelectGroup={selectGroup}
+                onExpandGroup={expandGroup}
+                onCollapseGroup={collapseGroup}
               />
             ))}
           </div>
@@ -1051,9 +1107,33 @@ interface RowProps {
   compareColumns: CompareColumn[];
   onToggle: (id: string) => void;
   onSelect: (id: string | null) => void;
+  /** Clicking a group's name selects it; its arrow opens or closes it, and Shift-click on the arrow (or its row's buttons) opens everything inside. */
+  onSelectGroup: (id: string) => void;
+  onExpandGroup: (id: string) => void;
+  onCollapseGroup: (id: string) => void;
 }
 
-function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, change, showBaseline, fixedColumns, columns, compareColumns, onToggle, onSelect }: RowProps) {
+function ScheduleRow({
+  row,
+  top,
+  leftW,
+  treeW,
+  totalW,
+  timeline,
+  dataDate,
+  selected,
+  trace,
+  change,
+  showBaseline,
+  fixedColumns,
+  columns,
+  compareColumns,
+  onToggle,
+  onSelect,
+  onSelectGroup,
+  onExpandGroup,
+  onCollapseGroup,
+}: RowProps) {
   const isWbs = row.kind === "wbs";
   const onPath = trace === "on" && !selected;
   const kind = change && change.kind !== "unchanged" ? change.kind : null;
@@ -1069,7 +1149,7 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
       ? "bg-slate-50 dark:bg-slate-900"
       : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
 
-  const handle = () => (isWbs ? onToggle(row.node.id) : onSelect(row.task.id));
+  const handle = () => (isWbs ? onSelectGroup(row.node.id) : onSelect(row.task.id));
 
   return (
     <div
@@ -1078,11 +1158,22 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
       }`}
       style={{ top, height: ROW_H, width: totalW }}
       onClick={handle}
+      onDoubleClick={isWbs ? () => onToggle(row.node.id) : undefined}
       aria-selected={selected || undefined}
     >
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
         {isWbs ? (
-          <WbsCells row={row} treeW={treeW} fixed={fixedColumns} columns={columns} compareColumns={compareColumns} />
+          <WbsCells
+            row={row}
+            treeW={treeW}
+            selected={selected}
+            fixed={fixedColumns}
+            columns={columns}
+            compareColumns={compareColumns}
+            onToggle={onToggle}
+            onExpandGroup={onExpandGroup}
+            onCollapseGroup={onCollapseGroup}
+          />
         ) : (
           <TaskCells task={row.task} depth={row.depth} treeW={treeW} fixed={fixedColumns} columns={columns} compareColumns={compareColumns} change={change} />
         )}
@@ -1103,29 +1194,78 @@ const numCell = "shrink-0 truncate px-1 tabular-nums";
 function WbsCells({
   row,
   treeW,
+  selected,
   fixed,
   columns,
   compareColumns,
+  onToggle,
+  onExpandGroup,
+  onCollapseGroup,
 }: {
   row: Extract<Row, { kind: "wbs" }>;
   treeW: number;
+  selected: boolean;
   fixed: FixedColumn[];
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
+  onToggle: (id: string) => void;
+  onExpandGroup: (id: string) => void;
+  onCollapseGroup: (id: string) => void;
 }) {
   const { node } = row;
   return (
     <>
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2 font-semibold" style={{ width: treeW, paddingLeft: 8 + row.depth * 14 }}>
-        <span className="w-3 shrink-0 text-center text-[10px] text-slate-500" aria-hidden>
+        <button
+          type="button"
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] text-slate-500 hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-700"
+          aria-label={row.expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
+          aria-expanded={row.expanded}
+          title="Open or close this group. Shift-click to open everything inside it."
+          onClick={(e) => {
+            e.stopPropagation(); // the row's own click selects the group
+            if (e.shiftKey) onExpandGroup(node.id);
+            else onToggle(node.id);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           {row.expanded ? "▼" : "▶"}
-        </span>
+        </button>
         <span className="truncate">{node.name}</span>
         <span
           className="shrink-0 font-normal text-slate-400"
           title={row.matches === undefined ? undefined : `${row.matches} matching of ${node.activityCount}`}
         >
           {fmtInt(row.matches ?? node.activityCount)}
+        </span>
+        {/* The same two actions as the toolbar's, for this group: on hover, and while it is the selected one. */}
+        <span className={`ml-auto shrink-0 gap-1 ${selected ? "flex" : "hidden group-hover:flex"}`}>
+          <button
+            type="button"
+            className="flex size-5 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            aria-label={`Expand everything inside ${node.name}`}
+            title="Expand everything inside this group"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpandGroup(node.id);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <LuUnfoldVertical size={12} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="flex size-5 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            aria-label={`Collapse everything inside ${node.name}`}
+            title="Collapse everything inside this group"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCollapseGroup(node.id);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <LuFoldVertical size={12} aria-hidden />
+          </button>
         </span>
       </div>
       {fixed.map((c) => (

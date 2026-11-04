@@ -242,3 +242,53 @@ export function collapsibleIds(roots: WbsNode[]): string[] {
   roots.forEach(visit);
   return ids;
 }
+
+// ---- Opening and closing everything inside one group ---------------------------------------------------------------
+/** Every WBS group below this one, at any depth. */
+export function groupsBelow(node: WbsNode): WbsNode[] {
+  const out: WbsNode[] = [];
+  const visit = (n: WbsNode) => {
+    for (const c of n.children) {
+      out.push(c);
+      visit(c);
+    }
+  };
+  visit(node);
+  return out;
+}
+
+/** A group with nothing in it has nothing to open or close. */
+const hasContent = (n: WbsNode) => n.children.length > 0 || n.activities.length > 0;
+
+/**
+ * `collapsed` with the group and every group below it opened, so all its activities show. Nothing outside the group
+ * changes. Returns the same set when it was already fully open.
+ */
+export function expandWithin(collapsed: ReadonlySet<string>, node: WbsNode): ReadonlySet<string> {
+  const ids = [node, ...groupsBelow(node)].map((n) => n.id);
+  if (!ids.some((id) => collapsed.has(id))) return collapsed;
+  const next = new Set(collapsed);
+  for (const id of ids) next.delete(id);
+  return next;
+}
+
+/**
+ * `collapsed` with every group below this one closed. The group itself is left (or put) open, so its own groups show,
+ * closed. Nothing outside the group changes. Returns the same set when there was nothing to close.
+ */
+export function collapseWithin(collapsed: ReadonlySet<string>, node: WbsNode): ReadonlySet<string> {
+  const below = groupsBelow(node).filter(hasContent);
+  if (!collapsed.has(node.id) && below.every((n) => collapsed.has(n.id))) return collapsed;
+  const next = new Set(collapsed);
+  next.delete(node.id);
+  for (const n of below) next.add(n.id);
+  return next;
+}
+
+/** Whether "expand everything inside" would open something: the group, or a group below it, is closed. */
+export const canExpandWithin = (collapsed: ReadonlySet<string>, node: WbsNode) =>
+  (hasContent(node) && collapsed.has(node.id)) || groupsBelow(node).some((n) => hasContent(n) && collapsed.has(n.id));
+
+/** Whether "collapse everything inside" would close something: a group below this one is open. */
+export const canCollapseWithin = (collapsed: ReadonlySet<string>, node: WbsNode) =>
+  groupsBelow(node).some((n) => hasContent(n) && !collapsed.has(n.id));

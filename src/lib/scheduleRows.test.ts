@@ -1,5 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { buildRows, collapsibleIds, describeDateRange, endOfDay, makePredicate, matchesDateRange, maxWbsDepth, toDateRange } from "./scheduleRows";
+import {
+  buildRows,
+  canCollapseWithin,
+  canExpandWithin,
+  collapseWithin,
+  collapsibleIds,
+  describeDateRange,
+  endOfDay,
+  expandWithin,
+  groupsBelow,
+  makePredicate,
+  matchesDateRange,
+  maxWbsDepth,
+  toDateRange,
+} from "./scheduleRows";
 import { buildSchedule, listProjects, type Activity, type WbsNode } from "./xer/model";
 import { parseXer } from "./xer/parse";
 
@@ -406,5 +420,60 @@ describe("describeDateRange (the Dates chip label)", () => {
     expect(describeDateRange("2026-10-01", "2026-10-31")).toBe("01-Oct-26 – 31-Oct-26");
     expect(describeDateRange("2026-10-01", "")).toBe("From 01-Oct-26");
     expect(describeDateRange("", "2026-10-31")).toBe("Until 31-Oct-26");
+  });
+});
+
+describe("opening and closing everything inside one group", () => {
+  // root > a (has b and c) ; b has d ; d, c and e hold activities; f is empty.
+  const node = (id: string, children: WbsNode[] = [], activities: Activity[] = []) => ({ id, children, activities }) as WbsNode;
+  const a1 = act(null, null);
+  const d = node("d", [], [a1]);
+  const b = node("b", [d]);
+  const c = node("c", [], [a1]);
+  const f = node("f");
+  const a = node("a", [b, c, f]);
+  const e = node("e", [], [a1]);
+  const root = node("root", [a, e]);
+  const all = new Set(["root", "a", "b", "c", "d", "e", "f"]);
+
+  test("groupsBelow lists every group under one, at any depth, and not the group itself", () => {
+    expect(groupsBelow(a).map((n) => n.id)).toEqual(["b", "d", "c", "f"]);
+    expect(groupsBelow(d)).toEqual([]);
+  });
+
+  test("expanding opens the group and everything below it, and nothing else", () => {
+    const next = expandWithin(all, a);
+    expect([...next].sort()).toEqual(["e", "root"]);
+  });
+
+  test("expanding what is already open changes nothing, and hands back the same set", () => {
+    const open = new Set(["e"]);
+    expect(expandWithin(open, a)).toBe(open);
+  });
+
+  test("collapsing closes every group below, keeps the group itself open, and touches nothing else", () => {
+    const next = collapseWithin(new Set(["e"]), a);
+    expect([...next].sort()).toEqual(["b", "c", "d", "e"]); // f has nothing in it, so there is nothing to close
+    expect(next.has("a")).toBe(false);
+  });
+
+  test("collapsing a group that was itself closed opens it, with its own groups closed", () => {
+    const next = collapseWithin(new Set(["a"]), a);
+    expect(next.has("a")).toBe(false);
+    expect(["b", "c", "d"].every((id) => next.has(id))).toBe(true);
+  });
+
+  test("collapsing when everything below is already closed changes nothing", () => {
+    const closed = new Set(["b", "c", "d"]);
+    expect(collapseWithin(closed, a)).toBe(closed);
+  });
+
+  test("canExpandWithin / canCollapseWithin say whether pressing the button would do anything", () => {
+    expect(canExpandWithin(new Set(), a)).toBe(false);
+    expect(canExpandWithin(new Set(["d"]), a)).toBe(true);
+    expect(canExpandWithin(new Set(["a"]), a)).toBe(true);
+    expect(canCollapseWithin(new Set(), a)).toBe(true);
+    expect(canCollapseWithin(new Set(["b", "c", "d"]), a)).toBe(false);
+    expect(canCollapseWithin(new Set(), d)).toBe(false); // nothing below it
   });
 });
