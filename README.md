@@ -38,7 +38,7 @@ the browser and never leaves your machine, so there is no backend.
   - **Compare two programmes** – click the **Compare tools** icon (two arrows). Add the second file there: drop an `.xer`
     on the dotted area, choose one, or pick one of the files opened lately (the last five are kept in this browser).
     Nothing is uploaded. The file with the earlier data date is the **baseline** and the later one the **current**
-    programme; **Swap order** reverses that. Activities are matched by **Activity ID** (not the database id, which changes
+    programme; **Swap order** reverses that. The two files are tagged **Open in viewer** (the one in the top bar, changed with **Open…**, which ends the comparison) and **Added file** (changed with **Replace added file…**). **Exit compare** is in the menu header and **Done** in a footer that stays in view while the middle scrolls. Activities are matched by **Activity ID** (not the database id, which changes
     when a file is exported again), so a revision exported from another database still lines up. A file with several
     projects is compared on the one with the same name as the open project, and the menu lets you pick another.
     Each activity is **new** (green `+`), **removed** (red `−`, struck through, drawn as a dashed outline at its old

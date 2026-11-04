@@ -48,6 +48,8 @@ export interface CompareApi {
   openRecent: (file: RecentFile) => void;
   baseline: CompareSide | null;
   current: CompareSide | null;
+  /** Which of the two is the file that was added for comparison (the other is the one open in the viewer). */
+  addedSide: "baseline" | "current" | null;
   swap: () => void;
   matched: Matched | null;
   comparison: Comparison | null;
@@ -158,7 +160,7 @@ export function useCompare(own: Schedule | null, ownName: string, ownSize: numbe
     // The file with the earlier data date is the baseline; "swap" reverses whatever that gave.
     let [older, newer] = orderByDataDate(theirs, mine);
     if (swapped) [older, newer] = [newer, older];
-    return { baseline: older, current: newer };
+    return { baseline: older, current: newer, added: older === theirs ? ("baseline" as const) : ("current" as const) };
   }, [own, ownName, other, otherSchedule, swapped]);
 
   const matched = useMemo(() => (sides ? matchSchedules(sides.baseline.schedule, sides.current.schedule) : null), [sides]);
@@ -222,6 +224,7 @@ export function useCompare(own: Schedule | null, ownName: string, ownSize: numbe
     openRecent,
     baseline: sides?.baseline ?? null,
     current: sides?.current ?? null,
+    addedSide: sides?.added ?? null,
     swap: () => setSwapped((s) => !s),
     matched,
     comparison,
