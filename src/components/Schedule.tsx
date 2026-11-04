@@ -778,7 +778,8 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 compare: compare.active ? { baseline: compare.showBaseline } : null,
               }}
             />
-            <div className="flex gap-1">
+            {/* Same 12px between these buttons as between the single buttons on the left; only a deliberate pair sits tighter. */}
+            <div className="flex gap-3">
               <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 <LuMinus size={18} aria-hidden />
               </button>
