@@ -101,7 +101,8 @@ the browser and never leaves your machine, so there is no backend.
     before a longer one that starts with it, as when sorting by Start then Finish in P6 or MS Project; relationships
     are not used. Remembered between visits, like Non-working and Groups; unlike
     the WBS depth control, it does not reset for a new project.
-  - **WBS grouping depth** – choose how many WBS levels get their own row (**WBS level 1**, **2**, … ), similar
+  - **WBS grouping depth** – an icon button (a tree with the level on a badge, highlighted while it is not the deepest level)
+    that chooses how many WBS levels get their own row (**Level 1**, **2**, … ), similar
     to P6's "Group by WBS" level setting. Activities below the chosen level are listed directly under the deepest
     group shown, with no rows for the levels folded away; group dates, activity counts and filter match counts
     still cover the whole branch. It opens as a menu below the button rather than a native dropdown, so it never
