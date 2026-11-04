@@ -4,7 +4,7 @@ import { CHANGE_FIELDS } from "../lib/compare";
 import { fmtBytes, fmtDate, fmtInt } from "../lib/format";
 import type { RecentFile } from "../state/fileStore";
 import type { CompareApi, CompareSide } from "../state/useCompare";
-import { Switch, badgeClass, buttonClass, iconToggleClass } from "./ui";
+import { InfoTip, Switch, badgeClass, buttonClass, iconToggleClass } from "./ui";
 import { useDismiss } from "./useDismiss";
 
 /** Panel width, so it can open towards the left when the button is too close to the window's right edge. */
@@ -273,8 +273,14 @@ export function CompareMenu({ compare }: { compare: CompareApi }) {
                 <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
                   <p className={caption}>Compare by</p>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                    {CHANGE_FIELDS.map((f) => (
-                      <Switch key={f.key} checked={compare.fields[f.key]} onChange={() => compare.toggleField(f.key)} label={f.label} title={f.title} />
+                    {CHANGE_FIELDS.map((f, i) => (
+                      // relative: the explanation opens under its own row, towards the middle of the panel
+                      <div key={f.key} className="relative flex items-center gap-1">
+                        <Switch checked={compare.fields[f.key]} onChange={() => compare.toggleField(f.key)} label={f.label} />
+                        <InfoTip label={f.label} align={i % 2 === 0 ? "left" : "right"}>
+                          {f.help}
+                        </InfoTip>
+                      </div>
                     ))}
                   </div>
                 </div>

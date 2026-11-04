@@ -56,8 +56,10 @@ the browser and never leaves your machine, so there is no backend.
     activity to see in the details panel exactly what differs: dates, durations, predecessors added or removed and lag
     changes, status and percent, constraints, renames. A strip under the toolbar names the two files and has a chip per kind
     of change, with its count, that switches that kind on or off (all on shows everything; unchanged activities
-    show only then). **Compare by** in the menu chooses what counts as a difference (dates, duration, logic, progress,
-    constraints, names), and you can hide the baseline bars or the unchanged activities. The **Columns** menu gains a
+    show only then). **Compare by** in the menu chooses what counts as a difference (dates, logic, progress, constraints,
+    names; the **i** beside each says exactly what it checks). Progress and constraints are off to begin with: progress moves
+    with every update, so it isn't a change to the programme. A change of duration moves the dates, so it is counted under
+    Dates and shown with them in the details panel. You can also hide the baseline bars or the unchanged activities. The **Columns** menu gains a
     **Compare** group while you compare: **Baseline Start / Finish / Dur** and **Δ Start / Finish / Dur**. A date's change is in
     calendar days (▲ red when later, ▼ green when earlier; new and removed activities say so), and the change in duration is in the
     activity's own working days, like the Orig column. Baseline Start, Baseline Finish and Δ Finish are on to begin with, and

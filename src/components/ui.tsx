@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { LuInfo } from "react-icons/lu";
 import type { ActivityStatus } from "../lib/xer/model";
 
 export const STATUS_LABEL: Record<ActivityStatus, string> = {
@@ -114,3 +115,43 @@ export const iconToggleClass = (on: boolean) =>
 export const badgeClass =
   "pointer-events-none absolute -right-1.5 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-accent-600 px-1 " +
   "text-[10px] font-semibold leading-4 text-white";
+
+/**
+ * A small "i" button that explains the option beside it. The explanation shows while the pointer is over the button or it
+ * has focus; a click or tap focuses it (a tap has no hover, and Safari doesn't focus buttons itself), so it stays open
+ * until you press somewhere else or press the button again. It opens under the option, aligned to the left or
+ * right edge of the option's box, which has to be `relative`, so it stays inside the panel it is in. It sits next to the
+ * option's switch rather than inside its label, so pressing it doesn't toggle the option.
+ */
+export function InfoTip({ label, align = "left", children }: { label: string; align?: "left" | "right"; children: ReactNode }) {
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const shown = hover || focus;
+  return (
+    <>
+      <button
+        type="button"
+        className="flex size-5 shrink-0 items-center justify-center rounded-full text-slate-400 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:text-slate-500 dark:hover:text-slate-200"
+        aria-label={`About ${label}`}
+        aria-expanded={shown}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
+        onClick={(e) => (focus ? e.currentTarget.blur() : e.currentTarget.focus())}
+      >
+        <LuInfo size={14} aria-hidden />
+      </button>
+      {shown && (
+        <span
+          role="tooltip"
+          className={`pointer-events-none absolute top-full z-50 mt-1 w-56 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs leading-snug text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 ${
+            align === "left" ? "left-0" : "right-0"
+          }`}
+        >
+          {children}
+        </span>
+      )}
+    </>
+  );
+}

@@ -82,14 +82,16 @@ describe("what counts as a difference", () => {
   const base = schedule([A, B], [{ task: "102", pred: "101" }]);
   const run = (current: ReturnType<typeof schedule>, fields = DEFAULT_FIELDS) => classify(matchSchedules(base, current), fields).changes;
 
-  test("duration", () => {
+  test("a change of duration alone is not a difference: it is the dates that moving shows", () => {
     const changes = run(schedule([A, { ...B, dur: 120 }], [{ task: "102", pred: "101" }]));
-    expect(changes.get("102")).toMatchObject({ kind: "modified", fields: ["duration"] });
+    expect(changes.get("102")!.kind).toBe("unchanged");
   });
 
-  test("progress", () => {
-    const changes = run(schedule([A, { ...B, status: "TK_Complete" }], [{ task: "102", pred: "101" }]));
-    expect(changes.get("102")!.fields).toContain("progress");
+  test("progress is not compared unless it is switched on", () => {
+    const current = schedule([A, { ...B, status: "TK_Complete" }], [{ task: "102", pred: "101" }]);
+    expect(DEFAULT_FIELDS.progress).toBe(false);
+    expect(run(current).get("102")!.kind).toBe("unchanged");
+    expect(run(current, { ...DEFAULT_FIELDS, progress: true }).get("102")!.fields).toContain("progress");
   });
 
   test("a changed relationship type, a changed lag, an added link and a removed link are all logic changes", () => {

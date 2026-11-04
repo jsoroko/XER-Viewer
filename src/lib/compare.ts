@@ -20,25 +20,39 @@ import { rollUpWbs, type Activity, type ActivityStatus, type Schedule, type WbsN
 
 export type ChangeKind = "added" | "removed" | "modified" | "unchanged";
 
-export type ChangeField = "dates" | "duration" | "logic" | "progress" | "constraints" | "names";
+export type ChangeField = "dates" | "logic" | "progress" | "constraints" | "names";
 
 /** What can be switched on or off as a difference, in display order. */
-export const CHANGE_FIELDS: Array<{ key: ChangeField; label: string; title: string }> = [
-  { key: "dates", label: "Dates", title: "Start or finish date" },
-  { key: "duration", label: "Duration", title: "Original or remaining duration" },
-  { key: "logic", label: "Logic", title: "Predecessors, relationship types or lags" },
-  { key: "progress", label: "Progress", title: "Status or percent complete" },
-  { key: "constraints", label: "Constraints", title: "Primary or secondary constraint" },
-  { key: "names", label: "Names", title: "Activity name" },
+export const CHANGE_FIELDS: Array<{ key: ChangeField; label: string; help: string }> = [
+  {
+    key: "dates",
+    label: "Dates",
+    help: "Counts an activity as modified when its start or finish date is different. These are the dates the schedule shows: actual once work has started or finished, otherwise the planned ones. A change of duration moves them, so it is covered here too.",
+  },
+  {
+    key: "logic",
+    label: "Logic",
+    help: "Counts an activity as modified when a predecessor has been added or removed, or when the type or lag of a relationship is different. Predecessors are matched by Activity ID.",
+  },
+  {
+    key: "progress",
+    label: "Progress",
+    help: "Counts an activity as modified when its status (not started, in progress, complete) or its percent complete is different. Off by default: progress moves with every update, so it is not a change to the programme itself.",
+  },
+  {
+    key: "constraints",
+    label: "Constraints",
+    help: "Counts an activity as modified when its primary or secondary constraint, or the date of one, is different. Off by default.",
+  },
+  { key: "names", label: "Names", help: "Counts an activity as modified when its name is different." },
 ];
 
 export type CompareFields = Record<ChangeField, boolean>;
 
 export const DEFAULT_FIELDS: CompareFields = {
   dates: true,
-  duration: true,
   logic: true,
-  progress: true,
+  progress: false,
   constraints: false,
   names: true,
 };
@@ -216,7 +230,6 @@ function sameLogic(bs: Schedule, b: Activity, cs: Schedule, a: Activity): boolea
 function differences(bs: Schedule, b: Activity, cs: Schedule, a: Activity, on: CompareFields): ChangeField[] {
   const out: ChangeField[] = [];
   if (on.dates && (b.start !== a.start || b.finish !== a.finish)) out.push("dates");
-  if (on.duration && (!hrsSame(b.origDurHrs, a.origDurHrs) || !hrsSame(b.remDurHrs, a.remDurHrs))) out.push("duration");
   if (on.logic && !sameLogic(bs, b, cs, a)) out.push("logic");
   if (on.progress && (b.status !== a.status || Math.round(b.percent) !== Math.round(a.percent))) out.push("progress");
   if (
@@ -294,9 +307,8 @@ export function describeChange(matched: Matched, a: Activity, change: ActivityCh
     if (f === "dates") {
       move("Start", b.start, a.start);
       move("Finish", b.finish, a.finish);
-    } else if (f === "duration") {
+      // Not a difference of its own, but it is usually why the dates moved, so it is said alongside them.
       if (!hrsSame(b.origDurHrs, a.origDurHrs)) lines.push(`Duration ${fmtDays(b.origDurHrs, b.dayHrs) || "none"} → ${fmtDays(a.origDurHrs, a.dayHrs) || "none"}`);
-      if (!hrsSame(b.remDurHrs, a.remDurHrs)) lines.push(`Remaining ${fmtDays(b.remDurHrs, b.dayHrs) || "none"} → ${fmtDays(a.remDurHrs, a.dayHrs) || "none"}`);
     } else if (f === "logic") {
       const before = predLinks(matched.baseline, b);
       const after = predLinks(matched.current, a);
