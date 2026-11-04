@@ -217,7 +217,13 @@ export interface PrintInput {
    * A traced driving path (see drivingPath.ts) to show: its activities are outlined and linked, all others faded.
    * `label` goes in the header, e.g. "Backward trace from A1000".
    */
-  trace?: { label: string; ids: ReadonlySet<string>; links: readonly Relationship[] } | null;
+  trace?: {
+    label: string;
+    ids: ReadonlySet<string>;
+    links: readonly Relationship[];
+    /** When two programmes are compared: what was on the baseline's path and has dropped off it (outlined dashed, not faded). */
+    dropped?: { ids: ReadonlySet<string>; links: readonly Relationship[] } | null;
+  } | null;
   /**
    * Two programmes being compared (see compare.ts): rows are tinted, and bars coloured, by what changed since the
    * baseline. `label` goes in the header, e.g. "Comparing Rev A (12-Jan-26) with Rev B (02-Mar-26)".
@@ -249,7 +255,8 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   // Header text (its height decides how many rows fit on a page)
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
-  const trace = input.trace && input.trace.ids.size > 0 ? input.trace : null;
+  const trace = input.trace && (input.trace.ids.size > 0 || (input.trace.dropped?.ids.size ?? 0) > 0) ? input.trace : null;
+  const dropped = trace?.dropped && trace.dropped.ids.size > 0 ? trace.dropped : null;
   const described = describeFilters(filters);
   // "Path only" already names the trace; otherwise say it is being shown, so a faded sheet isn't a mystery.
   if (trace && !filters.path) described.push(`Traced path: ${trace.label}`);
@@ -382,6 +389,7 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
       const top = bodyTop + i * ROW_H;
       const mid = top + ROW_H / 2;
       const onPath = trace !== null && row.kind === "task" && trace.ids.has(row.task.id);
+      const offPath = dropped !== null && row.kind === "task" && dropped.ids.has(row.task.id);
       const change = compare && row.kind === "task" ? (compare.changes.get(row.task.id) ?? null) : null;
       const kind = change && change.kind !== "unchanged" ? change.kind : null;
       if (row.kind === "wbs") {
@@ -467,11 +475,12 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
           doc.text(pdfText(optionalColumnValue(c.key, a)), c.align === "right" ? ex + c.w - 4 : ex + 4, mid, { align: c.align, baseline: "middle" });
           ex += c.w;
         }
-        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : "off", change, compare?.showBaseline ?? false);
+        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : offPath ? "dropped" : "off", change, compare?.showBaseline ?? false);
       }
     });
 
     // -- Traced path: its links, where both ends are on this page ---------------------------------------------------------
+    if (dropped) drawPathLinks(doc, slice, dropped.links, bodyTop, ganttX, tl.x, true);
     if (trace) drawPathLinks(doc, slice, trace.links, bodyTop, ganttX, tl.x);
 
     // -- Data date line -------------------------------------------------------------------------------------------------
@@ -494,7 +503,8 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, {
       today: todayX !== null,
       nonWorking: shading.length > 0,
-      path: trace !== null,
+      path: trace !== null && trace.ids.size > 0,
+      dropped: dropped !== null,
       compare: compare ? { baseline: compare.showBaseline } : null,
     });
     doc.setFont("helvetica", "normal");
@@ -546,7 +556,16 @@ function pdfAnchor(a: Activity, side: Side, x: (t: number) => number): number | 
  * The traced path's relationships as lines between bars. A link is only drawn when both its activities are on this page
  * (the printed rows come from one list, so a link that crosses a page break is simply left out).
  */
-function drawPathLinks(doc: jsPDF, slice: Row[], links: readonly Relationship[], bodyTop: number, ganttX: number, x: (t: number) => number) {
+function drawPathLinks(
+  doc: jsPDF,
+  slice: Row[],
+  links: readonly Relationship[],
+  bodyTop: number,
+  ganttX: number,
+  x: (t: number) => number,
+  /** Links that drove in the baseline and no longer do: dashed and grey. */
+  dropped = false,
+) {
   const rowOf = new Map<string, number>();
   slice.forEach((r, i) => {
     if (r.kind === "task") rowOf.set(r.task.id, i);
@@ -555,9 +574,11 @@ function drawPathLinks(doc: jsPDF, slice: Row[], links: readonly Relationship[],
   const byId = new Map<string, Activity>();
   for (const r of slice) if (r.kind === "task") byId.set(r.task.id, r.task);
 
-  stroke(doc, C.path);
-  fill(doc, C.path);
-  doc.setLineWidth(0.9);
+  const color = dropped ? C.baseline : C.path;
+  stroke(doc, color);
+  fill(doc, color);
+  doc.setLineWidth(dropped ? 0.7 : 0.9);
+  if (dropped) doc.setLineDashPattern([3, 2], 0);
   for (const rel of links) {
     const pred = byId.get(rel.predTaskId);
     const succ = byId.get(rel.taskId);
@@ -579,9 +600,13 @@ function drawPathLinks(doc: jsPDF, slice: Row[], links: readonly Relationship[],
     );
     doc.triangle(to.x, to.y, to.x - arrowDir * 4, to.y - 2, to.x - arrowDir * 4, to.y + 2, "F");
   }
+  if (dropped) doc.setLineDashPattern([], 0);
 }
 
-/** `path` is where the bar sits against a traced path: on it (outlined), off it (faded), or null when none is shown. */
+/**
+ * `path` is where the bar sits against a traced path: on it (outlined), off it (faded), dropped off it since the
+ * baseline (outlined dashed, grey), or null when none is shown.
+ */
 function drawTaskBar(
   doc: jsPDF,
   a: Activity,
@@ -590,7 +615,7 @@ function drawTaskBar(
   ganttW: number,
   x: (t: number) => number,
   dataDate: number | null,
-  path: "on" | "off" | null,
+  path: "on" | "off" | "dropped" | null,
   change: ActivityChange | null = null,
   showBaseline = false,
 ) {
@@ -613,10 +638,19 @@ function drawTaskBar(
     const room = ganttW - from - 2;
     if (room > 24) doc.text(fit(doc, text, room), ganttX + from + 3, mid, { baseline: "middle" });
   };
-  const outline = (left: number, width: number, h: number) => {
-    stroke(doc, C.path);
-    doc.setLineWidth(0.9);
-    doc.rect(ganttX + left - 1, mid - h / 2 - 1, width + 2, h + 2, "S");
+  const outlined = path === "on" || path === "dropped";
+  const outline = (left: number, width: number, h: number, up = 0) => {
+    const dashed = path === "dropped";
+    stroke(doc, dashed ? C.baseline : C.path);
+    doc.setLineWidth(dashed ? 0.8 : 0.9);
+    if (dashed) doc.setLineDashPattern([2, 1.5], 0);
+    doc.rect(ganttX + left - 1, mid - h / 2 - 1 - up, width + 2, h + 2, "S");
+    if (dashed) doc.setLineDashPattern([], 0);
+  };
+  // A milestone's outline is a larger diamond behind it.
+  const haloDiamond = (cx: number, up = 0) => {
+    fill(doc, path === "dropped" ? C.baseline : C.path);
+    diamond(doc, ganttX + cx, mid - up, 5.2);
   };
 
   // Comparing: one colour for the kind of change instead of progress, and where it used to be underneath.
@@ -634,6 +668,7 @@ function drawTaskBar(
       if (isMilestone(was)) diamond(doc, ganttX + x(was.type === "finish-milestone" ? was.finish : was.start), mid + 4.4, 2);
       else doc.rect(ganttX + x(was.start), mid + 3, Math.max(x(was.finish) - x(was.start), 1.5), 1.6, "F");
     }
+    if (outlined && milestone) haloDiamond(cx, lift);
     if (kind === "removed") {
       stroke(doc, C.removed);
       doc.setLineWidth(0.8);
@@ -652,6 +687,7 @@ function drawTaskBar(
       else if (a.type === "loe") doc.rect(ganttX + x1, mid - 1.3 - lift, x2 - x1, 2.6, "F");
       else doc.rect(ganttX + x1, mid - 3.2 - lift, x2 - x1, 6.4, "F");
     }
+    if (outlined && !milestone) outline(x1, x2 - x1, a.type === "loe" ? 2.6 : 6.4, lift);
     if (milestone) label(cx + 5, cx - 5);
     else label(x2 + 2, x1);
     return;
@@ -659,10 +695,7 @@ function drawTaskBar(
 
   if (isMilestone(a)) {
     const cx = x(a.type === "finish-milestone" ? a.finish : a.start);
-    if (path === "on") {
-      fill(doc, C.path);
-      diamond(doc, ganttX + cx, mid, 5.2);
-    }
+    if (outlined) haloDiamond(cx);
     fill(doc, tone(a.critical ? C.red : a.status === "completed" ? C.complete : C.text));
     diamond(doc, ganttX + cx, mid, 3.6);
     label(cx + 5, cx - 5);
@@ -673,7 +706,7 @@ function drawTaskBar(
   if (a.type === "loe") {
     fill(doc, tone(C.loe));
     doc.rect(ganttX + x1, mid - 1.3, x2 - x1, 2.6, "F");
-    if (path === "on") outline(x1, x2 - x1, 2.6);
+    if (outlined) outline(x1, x2 - x1, 2.6);
     label(x2 + 2, x1);
     return;
   }
@@ -687,7 +720,7 @@ function drawTaskBar(
   if (split > x1) doc.rect(ganttX + x1, mid - 3.2, split - x1, 6.4, "F");
   fill(doc, tone(a.critical ? C.critRemaining : C.remaining));
   if (x2 > split) doc.rect(ganttX + split, mid - 3.2, x2 - split, 6.4, "F");
-  if (path === "on") outline(x1, x2 - x1, 6.4);
+  if (outlined) outline(x1, x2 - x1, 6.4);
   label(x2 + 2, x1);
 }
 
@@ -695,7 +728,7 @@ function drawLegend(
   doc: jsPDF,
   x0: number,
   y: number,
-  show: { today: boolean; nonWorking: boolean; path: boolean; compare: { baseline: boolean } | null },
+  show: { today: boolean; nonWorking: boolean; path: boolean; dropped: boolean; compare: { baseline: boolean } | null },
 ) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
@@ -757,6 +790,15 @@ function drawLegend(
       stroke(doc, C.path);
       doc.setLineWidth(0.9);
       doc.rect(sx, y - 3, 14, 6, "S");
+    }, 14);
+  }
+  if (show.dropped) {
+    item("Dropped off the path", (sx) => {
+      stroke(doc, C.baseline);
+      doc.setLineWidth(0.8);
+      doc.setLineDashPattern([2, 1.5], 0);
+      doc.rect(sx, y - 3, 14, 6, "S");
+      doc.setLineDashPattern([], 0);
     }, 14);
   }
   if (show.today) {

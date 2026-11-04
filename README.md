@@ -50,6 +50,14 @@ the browser and never leaves your machine, so there is no backend.
     show only then). **Compare by** in the menu chooses what counts as a difference (dates, duration, logic, progress,
     constraints, names), and you can hide the baseline bars or the unchanged activities. The PDF prints the same
     colours, markers, baseline bars and legend, with the two files named in its header.
+
+    **Tracing while comparing** – a trace is run on both programmes, from the same Activity ID, and every step is marked:
+    **on both** paths, **joined** the path (it drives now but didn't), or **dropped** off it (it drove in the baseline and
+    no longer does, because its logic or dates changed or it was removed). Dropped steps are outlined dashed grey, with the
+    baseline-only links drawn dashed, while the current path keeps its cyan outline and links; the trace panel lists every
+    step with its status, shows how many activities are on the path (and how many were), how far its finish moved, and
+    filters by status. **Baseline path** hides the dropped steps; **Path only** and the CSV and PDF follow it. Tracing from a
+    new activity says there was no baseline path; from a removed one, its old path is shown as dropped.
   - **Date range filter** – the **Dates** (calendar) icon (hover for the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
     scrolled into view. **Fit View** (the corners icon beside zoom) fits the whole project; once a range is set, or a search, filter or trace leaves
@@ -172,7 +180,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/version.ts`, `appVersion.ts`, `scripts/release.ts` | Version numbering, the version and build date shown on the start screen, the release command |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
 | `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path, compared programmes |
-| `src/lib/compare.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; loading the second file |
+| `src/lib/compare.ts`, `compareTrace.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; tracing both and marking joined / dropped steps; loading the second file |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file and the five most recent; load / restore / close flow |
 | `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, CompareMenu / CompareBar, TablesView |
 | `scripts/generate-sample.ts` | Regenerates `src/sample/sample.xer` (`bun run sample`) |

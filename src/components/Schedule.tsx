@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib/compare";
+import { compareTrace } from "../lib/compareTrace";
 import { downloadBlob } from "../lib/csv";
 import { describeTrace, runTrace, type TraceMode, type TraceSpec } from "../lib/drivingPath";
 import { buildLinks } from "../lib/links";
@@ -73,6 +74,7 @@ const LINK_COLOR = {
   pred: "text-amber-500 dark:text-amber-400",
   succ: "text-violet-500 dark:text-violet-400",
   path: "text-cyan-500 dark:text-cyan-400",
+  dropped: "text-slate-400 dark:text-slate-500",
 } as const;
 
 interface Props {
@@ -155,6 +157,19 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
 
   const traceResult = useMemo(() => (trace ? runTrace(schedule, trace) : null), [schedule, trace]);
   const traceIds = traceResult && !traceResult.problem && traceResult.ids.size > 0 ? traceResult.ids : null;
+  // While two programmes are compared, the same trace is run on the baseline and each step says how it relates to the
+  // path there: on both, newly on it, or dropped off it. The baseline's part can be switched off.
+  const [showBaselinePath, setShowBaselinePath] = useState(true);
+  const comparedTrace = useMemo(
+    () => (trace && traceResult && compare.matched ? compareTrace(compare.matched, trace, traceResult) : null),
+    [trace, traceResult, compare.matched],
+  );
+  const droppedIds = comparedTrace && showBaselinePath ? comparedTrace.droppedIds : null;
+  // Every activity that is on the path being drawn: the current one, plus what dropped off it when that is shown.
+  const pathIds = useMemo(() => {
+    if (!traceIds && !droppedIds?.size) return null;
+    return new Set([...(traceIds ?? []), ...(droppedIds ?? [])]);
+  }, [traceIds, droppedIds]);
 
   const dateRange = useMemo(() => toDateRange(dateFrom, dateTo, dateMode), [dateFrom, dateTo, dateMode]);
   const dateRangeInvalid = dateRange === "invalid";
@@ -164,10 +179,10 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   const compareVisible = compare.visible;
   const extraTest = useMemo(() => {
     const built = compiled.predicate;
-    const onPath = pathOnly && traceIds ? traceIds : null;
+    const onPath = pathOnly && pathIds ? pathIds : null;
     if (!onPath && !compareVisible) return built;
     return (a: Activity) => (!onPath || onPath.has(a.id)) && (!compareVisible || compareVisible(a)) && (!built || built(a));
-  }, [compiled, pathOnly, traceIds, compareVisible]);
+  }, [compiled, pathOnly, pathIds, compareVisible]);
   const predicate = useMemo(
     () => makePredicate(filter, query, activeRange, extraTest, searchGroups ? schedule : null),
     [filter, query, activeRange, extraTest, schedule, searchGroups],
@@ -281,7 +296,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   // ---- Dependency lines for the selected activity ---------------------------------
   const linked = showLinks ? detailActivity : undefined; // the activity whose own links are drawn
   const links = useMemo(() => {
-    if (!linked && !traceIds) return null;
+    if (!linked && !traceIds && !droppedIds?.size) return null;
     const rowIndex = new Map<string, number>();
     rows.forEach((r, i) => {
       if (r.kind === "task") rowIndex.set(r.task.id, i);
@@ -290,12 +305,13 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
       predecessors: (linked && schedule.predecessors.get(linked.id)) || [],
       successors: (linked && schedule.successors.get(linked.id)) || [],
       path: traceResult && traceIds ? traceResult.links.map((l) => l.rel) : [],
+      dropped: comparedTrace && showBaselinePath ? comparedTrace.droppedLinks : [],
       activityById: schedule.activityById,
       rowIndex,
       x: timeline.x,
       rowH: ROW_H,
     });
-  }, [linked, traceResult, traceIds, rows, schedule, timeline]);
+  }, [linked, traceResult, traceIds, droppedIds, comparedTrace, showBaselinePath, rows, schedule, timeline]);
 
   const startTrace = (originId: string, mode: TraceMode) => {
     setPathOnly(false);
@@ -455,8 +471,13 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 }
               : null,
           trace:
-            trace && traceResult && traceIds
-              ? { label: describeTrace(schedule, trace), ids: traceIds, links: traceResult.links.map((l) => l.rel) }
+            trace && traceResult && (traceIds || droppedIds?.size)
+              ? {
+                  label: describeTrace(schedule, trace) + (comparedTrace && !comparedTrace.note ? ", compared with the baseline" : ""),
+                  ids: traceIds ?? new Set<string>(),
+                  links: traceResult.links.map((l) => l.rel),
+                  dropped: droppedIds?.size && comparedTrace ? { ids: droppedIds, links: comparedTrace.droppedLinks } : null,
+                }
               : null,
         },
         { onProgress: (done, total) => setPdfProgress({ done, total }) },
@@ -661,6 +682,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
             <Legend
               links={linked !== undefined}
               trace={traceIds !== null}
+              dropped={droppedIds !== null && droppedIds.size > 0}
               shading={shading.length > 0}
               today={todayInView}
               compare={compare.active ? { baseline: compare.showBaseline } : null}
@@ -815,7 +837,14 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
               >
                 {links.paths.map((p) => (
                   <g key={p.key} className={LINK_COLOR[p.kind]}>
-                    <path d={p.d} fill="none" stroke="currentColor" strokeWidth={p.kind === "path" ? 2 : 1.5} strokeLinejoin="round" />
+                    <path
+                      d={p.d}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={p.kind === "path" ? 2 : 1.5}
+                      strokeLinejoin="round"
+                      strokeDasharray={p.kind === "dropped" ? "4 3" : undefined}
+                    />
                     <polygon points={p.arrow} fill="currentColor" />
                   </g>
                 ))}
@@ -833,7 +862,15 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 timeline={timeline}
                 dataDate={dataDate}
                 selected={row.kind === "task" && row.task.id === selectedId}
-                trace={traceIds === null || row.kind !== "task" ? null : traceIds.has(row.task.id) ? "on" : "off"}
+                trace={
+                  (traceIds === null && !comparedTrace?.droppedIds.size) || row.kind !== "task"
+                    ? null
+                    : traceIds?.has(row.task.id)
+                      ? "on"
+                      : comparedTrace?.droppedIds.has(row.task.id) && showBaselinePath
+                        ? "dropped"
+                        : "off"
+                }
                 change={row.kind === "task" ? (compare.comparison?.changes.get(row.task.id) ?? null) : null}
                 showBaseline={compare.showBaseline}
                 columns={activeColumns}
@@ -848,6 +885,10 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
       {trace && traceResult && (
         <TracePanel
           schedule={schedule}
+          matched={compare.matched}
+          compared={comparedTrace}
+          showBaselinePath={showBaselinePath}
+          onShowBaselinePath={setShowBaselinePath}
           spec={trace}
           result={traceResult}
           selectedId={selectedId}
@@ -884,12 +925,15 @@ function describeCompare(compare: CompareApi): string {
 function Legend({
   links,
   trace,
+  dropped,
   shading,
   today,
   compare,
 }: {
   links: boolean;
   trace: boolean;
+  /** A compared trace has steps that dropped off the baseline's path. */
+  dropped: boolean;
   shading: boolean;
   today: boolean;
   /** Set while two programmes are compared: bars are then coloured by kind of change, not by progress. */
@@ -918,6 +962,7 @@ function Legend({
       {item("h-3 w-px bg-orange-500", "Data date")}
       {today && item("h-3 w-0 border-l-2 border-dashed border-fuchsia-500", "Today")}
       {trace && item("h-3 w-4 rounded-sm outline outline-2 -outline-offset-1 outline-cyan-500", "Traced path")}
+      {dropped && item("h-3 w-4 rounded-sm outline outline-2 outline-dashed -outline-offset-1 outline-slate-400", "Dropped off the path")}
       {links && item("h-0.5 w-4 bg-amber-500", "Predecessor")}
       {links && item("h-0.5 w-4 bg-violet-500", "Successor")}
       {shading && item("h-2.5 w-4 rounded-sm border border-slate-300 bg-(--non-working) dark:border-slate-600", "Non-working")}
@@ -954,8 +999,11 @@ interface RowProps {
   timeline: Timeline;
   dataDate: number | null;
   selected: boolean;
-  /** Where the row sits against a traced path: on it, off it (dimmed), or null when no trace is showing. */
-  trace: "on" | "off" | null;
+  /**
+   * Where the row sits against a traced path: on it, off it (dimmed), dropped off it since the baseline (outlined
+   * dashed, not dimmed), or null when no trace is showing.
+   */
+  trace: "on" | "off" | "dropped" | null;
   /** How this activity differs from the baseline, while two programmes are compared. */
   change: ActivityChange | null;
   showBaseline: boolean;
@@ -969,12 +1017,13 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
   const onPath = trace === "on" && !selected;
   const kind = change && change.kind !== "unchanged" ? change.kind : null;
   const tint = kind ? CHANGE_TINT[kind] : "";
+  // While comparing, what changed matters more than being on the path, so its colour is kept and the path is outlined.
   const bg = selected
     ? "bg-accent-50 dark:bg-accent-950"
-    : onPath
-      ? "bg-cyan-50 dark:bg-cyan-950"
-      : tint
-        ? tint
+    : tint
+      ? tint
+      : onPath
+        ? "bg-cyan-50 dark:bg-cyan-950"
         : isWbs
       ? "bg-slate-50 dark:bg-slate-900"
       : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
@@ -984,7 +1033,7 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
   return (
     <div
       className={`group absolute left-0 flex border-b border-slate-100 text-xs dark:border-slate-800 ${
-        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : tint ? tint : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
+        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : tint ? tint : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
       }`}
       style={{ top, height: ROW_H, width: totalW }}
       onClick={handle}
@@ -1001,7 +1050,7 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
         {isWbs ? (
           <SummaryBar node={row.node} timeline={timeline} />
         ) : (
-          <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} ring={trace === "on" ? RING : ""} change={change} showBaseline={showBaseline} />
+          <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} ring={trace === "on" ? RING : trace === "dropped" ? RING_DROPPED : ""} change={change} showBaseline={showBaseline} />
         )}
       </div>
     </div>
@@ -1136,6 +1185,8 @@ function SummaryBar({ node, timeline }: { node: WbsNode; timeline: Timeline }) {
 
 /** Outline for a bar on the traced path. */
 const RING = "outline outline-2 outline-cyan-500";
+/** Outline for a bar that was on the baseline's path and has dropped off it. */
+const RING_DROPPED = "outline outline-2 outline-dashed outline-slate-400 dark:outline-slate-500";
 
 function TaskBar({
   task,

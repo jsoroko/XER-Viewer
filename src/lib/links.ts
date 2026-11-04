@@ -52,7 +52,7 @@ export function routeLink(from: Point, fromSide: Side, to: Point, toSide: Side, 
 
 export interface LinkPath {
   key: string;
-  kind: "pred" | "succ" | "path";
+  kind: "pred" | "succ" | "path" | "dropped";
   d: string;
   arrow: string;
 }
@@ -75,6 +75,8 @@ interface Options {
   successors: Relationship[];
   /** Relationships on a traced driving path, drawn in addition to (and over) the two lists above. */
   path?: Relationship[];
+  /** Relationships that drove in the baseline but no longer do, drawn under the path, counted with its hidden ones. */
+  dropped?: Relationship[];
   activityById: Map<string, Activity>;
   /** Activity id → index of its row. Activities that aren't in the map aren't currently visible. */
   rowIndex: Map<string, number>;
@@ -95,7 +97,7 @@ function anchor(a: Activity, side: Side, x: Options["x"]): number | null {
 
 const fmt = (n: number) => Math.round(n * 10) / 10;
 
-export function buildLinks({ predecessors, successors, path = [], activityById, rowIndex, x, rowH }: Options): LinkLayer {
+export function buildLinks({ predecessors, successors, path = [], dropped = [], activityById, rowIndex, x, rowH }: Options): LinkLayer {
   const paths: LinkPath[] = [];
   let hidden = 0;
   let pathHidden = 0;
@@ -111,7 +113,7 @@ export function buildLinks({ predecessors, successors, path = [], activityById, 
     const fx = pred ? anchor(pred, fromSide, x) : null;
     const tx = succ ? anchor(succ, toSide, x) : null;
     if (predRow === undefined || succRow === undefined || fx === null || tx === null) {
-      if (kind === "path") pathHidden++;
+      if (kind === "path" || kind === "dropped") pathHidden++;
       else hidden++;
       return;
     }
@@ -137,6 +139,7 @@ export function buildLinks({ predecessors, successors, path = [], activityById, 
     });
   };
 
+  for (const rel of dropped) add(rel, "dropped");
   for (const rel of predecessors) add(rel, "pred");
   for (const rel of successors) add(rel, "succ");
   for (const rel of path) add(rel, "path");

@@ -138,7 +138,8 @@ export interface TraceStep {
   via: PathLink | null;
 }
 
-const byDate = (a: Activity, b: Activity) =>
+/** Earliest start first, then finish, then code: the order a path is listed in. */
+export const byStartDate = (a: Activity, b: Activity) =>
   (a.start ?? Infinity) - (b.start ?? Infinity) ||
   (a.finish ?? Infinity) - (b.finish ?? Infinity) ||
   a.code.localeCompare(b.code, undefined, { numeric: true });
@@ -154,7 +155,7 @@ export function traceSteps(schedule: Schedule, result: TraceResult): TraceStep[]
     const activity = schedule.activityById.get(id);
     if (activity) steps.push({ activity, via: feed.get(id) ?? null });
   }
-  return steps.sort((x, y) => byDate(x.activity, y.activity));
+  return steps.sort((x, y) => byStartDate(x.activity, y.activity));
 }
 
 export interface TraceSummary {

@@ -469,4 +469,27 @@ describe("comparing two programmes", () => {
     expect(lines).not.toContain("Modified");
     expect(lines).not.toContain("~");
   });
+
+  test("a trace compared with the baseline names what dropped off its path in the legend", async () => {
+    const [on, off] = compareRows.filter((r) => r.kind === "task").map((r) => (r as Extract<Row, { kind: "task" }>).task.id);
+    const render = async (dropped: boolean) => {
+      const { blob } = await buildPdf(
+        {
+          schedule: matched.schedule,
+          rows: compareRows,
+          filters: noFilters,
+          matched: 56,
+          total: 56,
+          generatedAt: new Date(2026, 8, 21, 14, 5),
+          compare,
+          trace: { label: "Backward trace from X, compared with the baseline", ids: new Set([on!]), links: [], dropped: dropped ? { ids: new Set([off!]), links: [] } : null },
+        },
+        { compress: false },
+      );
+      return shown(pdfString(await blob.arrayBuffer()));
+    };
+    expect(await render(true)).toContain("Dropped off the path");
+    expect(await render(false)).not.toContain("Dropped off the path");
+    expect((await render(true)).some((l) => l.includes("compared with the baseline"))).toBe(true);
+  });
 });

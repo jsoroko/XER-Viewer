@@ -36,6 +36,16 @@ describe("traceCsv", () => {
     ]);
   });
 
+  test("when two programmes are compared each step says how it relates to the baseline's path", () => {
+    const lines = traceCsv(schedule, [
+      { ...steps[0]!, status: "both" },
+      { ...steps[1]!, status: "dropped" },
+    ]).split("\r\n");
+    expect(lines[0]).toEndWith(",Path status");
+    expect(lines[1]).toEndWith(",On both paths");
+    expect(lines[2]).toEndWith(",Dropped off the path");
+  });
+
   test("an empty path is just the header", () => {
     expect(traceCsv(schedule, []).split("\r\n")).toHaveLength(1);
   });
