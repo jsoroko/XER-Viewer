@@ -17,6 +17,10 @@ the browser and never leaves your machine, so there is no backend.
   code of any WBS group above a task, so "WP23" finds everything inside a WP23 group; the project's top row is
   ignored), status/critical/milestone
   filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
+  - **Legend** – the info icon (beside the zoom buttons) opens a key to the chart, in groups: Progress (or, while comparing, the
+    kinds of change and what the row markers mean), Other bars, Lines and shading, and Trace. It lists only what is on the
+    chart at the moment (Today, Non-working, Predecessor and Successor appear when switched on, Traced path while a trace is
+    showing), and it is as wide as its longest entry.
   - **Groups** – click a WBS group's arrow to open or close it (Shift-click to open everything inside it), or double-click its
     row. Click its **name** to select it; the toolbar's **Expand / Collapse everything inside the selected group** buttons (the
     unfold / fold icons after Expand all and Collapse all), and a single button on a row while the pointer is over it (it expands if anything in the group is closed, and collapses otherwise), then open

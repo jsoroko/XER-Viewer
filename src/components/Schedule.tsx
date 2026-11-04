@@ -49,6 +49,7 @@ import { CHANGE_BAR, CHANGE_MARK, CHANGE_SOLID, CHANGE_TEXT, CHANGE_TINT } from 
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
 import { FitViewButton } from "./FitViewButton";
+import { LegendMenu } from "./LegendMenu";
 import { TraceMenu } from "./TraceMenu";
 import { TracePanel } from "./TracePanel";
 import { WbsLevelSelect } from "./WbsLevelSelect";
@@ -767,13 +768,15 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
           )}
 
           <div className="ml-auto flex items-center gap-3">
-            <Legend
-              links={linked !== undefined}
-              trace={traceIds !== null}
-              dropped={droppedIds !== null && droppedIds.size > 0}
-              shading={shading.length > 0}
-              today={todayInView}
-              compare={compare.active ? { baseline: compare.showBaseline } : null}
+            <LegendMenu
+              state={{
+                today: todayInView,
+                nonWorking: shading.length > 0,
+                links: showLinks,
+                trace: traceIds !== null,
+                droppedPath: droppedIds !== null && droppedIds.size > 0,
+                compare: compare.active ? { baseline: compare.showBaseline } : null,
+              }}
             />
             <div className="flex gap-1">
               <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
@@ -1025,54 +1028,6 @@ function describeCompare(compare: CompareApi): string {
   const shown = (["added", "removed", "modified"] as const).filter((k) => compare.chips[k]).map((k) => (k === "added" ? "new" : k));
   const limited = shown.length < 3 || !compare.showUnchanged;
   return `Comparing ${side(compare.baseline!)} with ${side(compare.current!)}${limited ? `: showing ${shown.join(", ")}${compare.showUnchanged && shown.length === 3 ? "" : " only"}` : ""}`;
-}
-
-function Legend({
-  links,
-  trace,
-  dropped,
-  shading,
-  today,
-  compare,
-}: {
-  links: boolean;
-  trace: boolean;
-  /** A compared trace has steps that dropped off the baseline's path. */
-  dropped: boolean;
-  shading: boolean;
-  today: boolean;
-  /** Set while two programmes are compared: bars are then coloured by kind of change, not by progress. */
-  compare: { baseline: boolean } | null;
-}) {
-  const item = (swatch: string, label: string) => (
-    <span className="flex items-center gap-1.5">
-      <span className={swatch} />
-      {label}
-    </span>
-  );
-  return (
-    <div className="hidden items-center gap-3 text-[11px] text-slate-600 xl:flex dark:text-slate-400" aria-hidden>
-      {!compare && item("h-2.5 w-4 rounded-sm bg-emerald-600", "Complete")}
-      {!compare && item("h-2.5 w-4 rounded-sm bg-blue-700", "Actual")}
-      {!compare && item("h-2.5 w-4 rounded-sm bg-blue-400", "Remaining")}
-      {!compare && item("h-2.5 w-4 rounded-sm bg-red-500", "Critical")}
-      {compare && item(`h-2.5 w-4 rounded-sm ${CHANGE_BAR.added}`, "New")}
-      {compare && item(`h-2.5 w-4 rounded-sm ${CHANGE_BAR.modified}`, "Modified")}
-      {compare && item("h-2.5 w-4 rounded-sm border-2 border-dashed border-red-500", "Removed")}
-      {compare && item(`h-2.5 w-4 rounded-sm ${CHANGE_BAR.unchanged}`, "Unchanged")}
-      {compare?.baseline && item("h-[3px] w-4 rounded-sm bg-slate-500 dark:bg-slate-400", "Baseline")}
-      {item("h-1.5 w-4 rounded-sm bg-teal-500", "Level of effort")}
-      {item("h-2 w-4 bg-slate-700 dark:bg-slate-300", "WBS group")}
-      {item("size-2.5 rotate-45 bg-slate-800 dark:bg-slate-200", "Milestone")}
-      {item("h-3 w-px bg-orange-500", "Data date")}
-      {today && item("h-3 w-0 border-l-2 border-dashed border-fuchsia-500", "Today")}
-      {trace && item("h-3 w-4 rounded-sm outline outline-2 -outline-offset-1 outline-cyan-500", "Traced path")}
-      {dropped && item("h-3 w-4 rounded-sm outline outline-2 outline-dashed -outline-offset-1 outline-slate-400", "Dropped off the path")}
-      {links && item("h-0.5 w-4 bg-amber-500", "Predecessor")}
-      {links && item("h-0.5 w-4 bg-violet-500", "Successor")}
-      {shading && item("h-2.5 w-4 rounded-sm border border-slate-300 bg-(--non-working) dark:border-slate-600", "Non-working")}
-    </div>
-  );
 }
 
 function TimeScale({ ticks, width }: { ticks: ReturnType<typeof buildTicks>; width: number }) {
