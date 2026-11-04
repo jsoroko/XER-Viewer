@@ -88,7 +88,7 @@ the browser and never leaves your machine, so there is no backend.
     and remembered between visits, **Reset to default columns** puts them back, and the icon is highlighted while the choice
     differs from the default. Activity ID and Calendar aren't offered, since their values run too long to fit one line. A faint
     vertical line separates every column, and every header has a tooltip explaining it.
-  - **Sort order** – **By code** (the default) is the file's own order: WBS groups as arranged in the project,
+  - **Sort order** – an icon button (A to Z for code, a calendar for date; highlighted while it is not the file's own order) opening **By code** (the default) is the file's own order: WBS groups as arranged in the project,
     activities by activity code. **By date** reorders every level instead — WBS groups by their own rolled-up
     start date, activities by their own start date — applied recursively, so a date-sorted group's own sub-groups
     are themselves in date order, all the way down. Items that start on the same *day* (the time of day isn't compared,

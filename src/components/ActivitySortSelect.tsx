@@ -1,28 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import type { ActivitySort } from "../lib/scheduleRows";
-import { LuChevronDown } from "react-icons/lu";
-import { buttonClass } from "./ui";
+import type { IconType } from "react-icons";
+import { LuArrowDownAZ, LuCalendarArrowDown } from "react-icons/lu";
+import { iconToggleClass } from "./ui";
 
 interface Props {
   value: ActivitySort;
   onChange: (sort: ActivitySort) => void;
 }
 
-const OPTIONS: Array<{ id: ActivitySort; label: string; hint: string }> = [
-  { id: "code", label: "By code", hint: "The file's own order: WBS groups as arranged in the project, activities by activity code" },
-  { id: "date", label: "By date", hint: "Every level reordered by its own start date instead — WBS groups and activities alike, all the way down" },
+const OPTIONS: Array<{ id: ActivitySort; label: string; hint: string; Icon: IconType }> = [
+  { id: "code", label: "By code", Icon: LuArrowDownAZ, hint: "The file's own order: WBS groups as arranged in the project, activities by activity code" },
+  { id: "date", label: "By date", Icon: LuCalendarArrowDown, hint: "Every level reordered by its own start date instead — WBS groups and activities alike, all the way down" },
 ];
 
 const optionClass = (on: boolean) =>
-  "block w-full whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 " +
+  "flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 " +
   (on
     ? "bg-accent-50 text-accent-700 dark:bg-accent-950 dark:text-accent-300"
     : "text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800");
 
 /**
  * Chooses how siblings are ordered at every level of the WBS tree — the file's own order, or every level
- * reordered by its own start date (see `ActivitySort` in scheduleRows.ts). Opens as a menu below the button, like
- * the WBS level control next to it, so it always opens downward.
+ * reordered by its own start date (see `ActivitySort` in scheduleRows.ts). An icon button, like the others in the
+ * toolbar: the icon shows the order in use (A to Z for code, a calendar for date), and the button is highlighted
+ * while it is not the file's own order. Opens as a menu below it, so it always opens downward.
  */
 export function ActivitySortSelect({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
@@ -47,14 +49,14 @@ export function ActivitySortSelect({ value, onChange }: Props) {
     <div ref={box} className="relative">
       <button
         type="button"
-        className={buttonClass}
+        className={iconToggleClass(value !== "code" || open)}
         aria-haspopup="true"
         aria-expanded={open}
+        aria-label={`Sort order: ${current.label}`}
         onClick={() => setOpen((v) => !v)}
-        title={`Sort order: ${current.hint}`}
+        title={`Sort order: ${current.label}. ${current.hint}`}
       >
-        {current.label}
-        <LuChevronDown size={14} aria-hidden />
+        <current.Icon size={18} aria-hidden />
       </button>
 
       {open && (
@@ -76,6 +78,7 @@ export function ActivitySortSelect({ value, onChange }: Props) {
                 setOpen(false);
               }}
             >
+              <o.Icon size={16} aria-hidden />
               {o.label}
             </button>
           ))}
