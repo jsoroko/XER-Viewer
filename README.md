@@ -20,8 +20,8 @@ the browser and never leaves your machine, so there is no backend.
   - **Groups** – click a WBS group's arrow to open or close it (Shift-click to open everything inside it), or double-click its
     row. Click its **name** to select it; the toolbar's **Expand / Collapse everything inside the selected group** buttons (the
     unfold / fold icons after Expand all and Collapse all), and the same two buttons on the selected or hovered row, then open
-    every group below it down to its activities, or close every group below it and leave it open, without touching the rest of
-    the schedule. Selecting an activity, or pressing Esc, lets go of the group.
+    the group and every group below it down to its activities, or close the group and every group below it (so it opens again
+    with its own groups closed), without touching the rest of the schedule. Selecting an activity, or pressing Esc, lets go of the group.
   - **Dependency lines** – switch **Links** on, then select an activity to draw its predecessors (amber) and successors (violet) with
     FS/SS/FF/SF-aware routing. Links to activities hidden by a filter or collapsed group are counted, not drawn.
   - **Trace driving logic** – click the **Trace** (route) icon, which is always available. Choose where to trace from, **Selected** (the

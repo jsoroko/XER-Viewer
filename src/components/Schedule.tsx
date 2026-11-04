@@ -682,8 +682,8 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
               className={iconButtonClass}
               onClick={() => group && collapseGroup(group.id)}
               disabled={!group || !canCollapseWithin(collapsed, group)}
-              aria-label="Collapse everything inside the selected group"
-              title={group ? `Collapse everything inside “${group.name}”` : "Collapse everything inside a group: click a group's name to select it first"}
+              aria-label="Collapse the selected group and everything inside it"
+              title={group ? `Collapse “${group.name}” and everything inside it` : "Collapse a group and everything inside it: click a group's name to select it first"}
             >
               <LuFoldVertical size={18} aria-hidden />
             </button>
@@ -1256,8 +1256,8 @@ function WbsCells({
           <button
             type="button"
             className="flex size-5 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-            aria-label={`Collapse everything inside ${node.name}`}
-            title="Collapse everything inside this group"
+            aria-label={`Collapse ${node.name} and everything inside it`}
+            title="Collapse this group and everything inside it"
             onClick={(e) => {
               e.stopPropagation();
               onCollapseGroup(node.id);

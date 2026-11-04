@@ -273,15 +273,15 @@ export function expandWithin(collapsed: ReadonlySet<string>, node: WbsNode): Rea
 }
 
 /**
- * `collapsed` with every group below this one closed. The group itself is left (or put) open, so its own groups show,
- * closed. Nothing outside the group changes. Returns the same set when there was nothing to close.
+ * `collapsed` with the group and every group below it closed. Opening the group again later then shows its own groups
+ * closed, as expanding it fully and collapsing it again would. Nothing outside the group changes. Returns the same set
+ * when there was nothing to close.
  */
 export function collapseWithin(collapsed: ReadonlySet<string>, node: WbsNode): ReadonlySet<string> {
-  const below = groupsBelow(node).filter(hasContent);
-  if (!collapsed.has(node.id) && below.every((n) => collapsed.has(n.id))) return collapsed;
+  const ids = [node, ...groupsBelow(node)].filter(hasContent).map((n) => n.id);
+  if (ids.every((id) => collapsed.has(id))) return collapsed;
   const next = new Set(collapsed);
-  next.delete(node.id);
-  for (const n of below) next.add(n.id);
+  for (const id of ids) next.add(id);
   return next;
 }
 
@@ -289,6 +289,6 @@ export function collapseWithin(collapsed: ReadonlySet<string>, node: WbsNode): R
 export const canExpandWithin = (collapsed: ReadonlySet<string>, node: WbsNode) =>
   (hasContent(node) && collapsed.has(node.id)) || groupsBelow(node).some((n) => hasContent(n) && collapsed.has(n.id));
 
-/** Whether "collapse everything inside" would close something: a group below this one is open. */
+/** Whether "collapse" would close something: the group, or a group below it, is open. */
 export const canCollapseWithin = (collapsed: ReadonlySet<string>, node: WbsNode) =>
-  groupsBelow(node).some((n) => hasContent(n) && !collapsed.has(n.id));
+  [node, ...groupsBelow(node)].some((n) => hasContent(n) && !collapsed.has(n.id));

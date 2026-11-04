@@ -451,20 +451,23 @@ describe("opening and closing everything inside one group", () => {
     expect(expandWithin(open, a)).toBe(open);
   });
 
-  test("collapsing closes every group below, keeps the group itself open, and touches nothing else", () => {
+  test("collapsing closes the group and every group below it, and touches nothing else", () => {
     const next = collapseWithin(new Set(["e"]), a);
-    expect([...next].sort()).toEqual(["b", "c", "d", "e"]); // f has nothing in it, so there is nothing to close
-    expect(next.has("a")).toBe(false);
+    expect([...next].sort()).toEqual(["a", "b", "c", "d", "e"]); // f has nothing in it, so there is nothing to close
   });
 
-  test("collapsing a group that was itself closed opens it, with its own groups closed", () => {
+  test("a group that only holds activities can be collapsed too", () => {
+    expect([...collapseWithin(new Set(), c)]).toEqual(["c"]);
+    expect(canCollapseWithin(new Set(), c)).toBe(true);
+  });
+
+  test("collapsing a group that was already closed also closes the groups below it", () => {
     const next = collapseWithin(new Set(["a"]), a);
-    expect(next.has("a")).toBe(false);
-    expect(["b", "c", "d"].every((id) => next.has(id))).toBe(true);
+    expect(["a", "b", "c", "d"].every((id) => next.has(id))).toBe(true);
   });
 
-  test("collapsing when everything below is already closed changes nothing", () => {
-    const closed = new Set(["b", "c", "d"]);
+  test("collapsing when everything is already closed changes nothing, and hands back the same set", () => {
+    const closed = new Set(["a", "b", "c", "d"]);
     expect(collapseWithin(closed, a)).toBe(closed);
   });
 
@@ -473,7 +476,9 @@ describe("opening and closing everything inside one group", () => {
     expect(canExpandWithin(new Set(["d"]), a)).toBe(true);
     expect(canExpandWithin(new Set(["a"]), a)).toBe(true);
     expect(canCollapseWithin(new Set(), a)).toBe(true);
-    expect(canCollapseWithin(new Set(["b", "c", "d"]), a)).toBe(false);
-    expect(canCollapseWithin(new Set(), d)).toBe(false); // nothing below it
+    expect(canCollapseWithin(new Set(["a", "b", "c", "d"]), a)).toBe(false);
+    expect(canCollapseWithin(new Set(["a", "b", "c"]), a)).toBe(true); // d is still open
+    expect(canCollapseWithin(new Set(["d"]), d)).toBe(false);
+    expect(canCollapseWithin(new Set(), f)).toBe(false); // nothing in it
   });
 });
