@@ -1,6 +1,6 @@
 {
   "name": "xer-viewer",
-  "version": "26.2.1",
+  "version": "26.2.2",
   "private": true,
   "type": "module",
   "scripts": {

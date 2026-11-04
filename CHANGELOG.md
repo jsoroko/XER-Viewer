@@ -3,6 +3,10 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.2.2 (2026-11-04)
+
+- Explain each Compare by option, and drop Duration and make Progress opt-in
+
 ## 26.2.1 (2026-11-04)
 
 - Fix dark-mode bleed-through and fast-scroll glitches, trim duplicate code
