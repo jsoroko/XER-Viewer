@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compileFilter, EMPTY_FILTER, newCondition } from "./advancedFilter";
 import {
   buildPdf,
+  describeArrangement,
   describeFilters,
   estimatePages,
   pdfText,
@@ -463,6 +464,13 @@ describe("comparing two programmes", () => {
     expect(await renderCompared({ ...compare, showBaseline: false })).not.toContain("Baseline");
   });
 
+  test("the legend is grouped like the one on screen, and explains the row markers", async () => {
+    const lines = await renderCompared(compare);
+    for (const title of ["Compared with the baseline", "Row markers", "Other bars", "Lines and shading"]) expect(lines).toContain(title);
+    for (const word of ["New activity", "Removed activity", "Modified activity"]) expect(lines).toContain(word);
+    expect(lines).not.toContain("Progress");
+  });
+
   test("a plain print is unchanged by all this", async () => {
     const lines = await renderCompared(null);
     expect(lines).toContain("Remaining");
@@ -533,5 +541,42 @@ describe("comparing two programmes", () => {
     for (const kept of ["Activity", "Start", "Finish"]) expect(lines).toContain(kept);
     expect(lines).toContain("05-Jan-26");
     expect(lines).not.toContain("15d"); // Concept Design's duration, no longer in any column
+  });
+});
+
+describe("the legend of a plain print", () => {
+  test("is grouped, and has no row markers", async () => {
+    const { text } = await render(allRows);
+    const lines = shown(text);
+    for (const title of ["Progress", "Other bars", "Lines and shading"]) expect(lines).toContain(title);
+    expect(lines).not.toContain("Row markers");
+    expect(lines).not.toContain("Predecessor");
+  });
+
+  test("a legend that does not fit on one line takes more, and the rows per page allow for them", () => {
+    expect(rowsPerPage(1, 2)).toBeLessThan(rowsPerPage(1, 1));
+    expect(rowsPerPage(1, 1)).toBe(rowsPerPage(1));
+  });
+});
+
+describe("how the rows were arranged", () => {
+  test("says nothing for the defaults", () => {
+    expect(describeArrangement(undefined)).toEqual([]);
+    expect(describeArrangement({ wbsLevel: null, levels: 4, sort: "code" })).toEqual([]);
+    expect(describeArrangement({ wbsLevel: 4, levels: 4, sort: "code" })).toEqual([]); // the deepest level is the whole tree
+  });
+
+  test("names a shallower WBS level, no groups, and sorting by date", () => {
+    expect(describeArrangement({ wbsLevel: 2, levels: 4, sort: "code" })).toEqual(["WBS level 2 of 4"]);
+    expect(describeArrangement({ wbsLevel: 0, levels: 4, sort: "code" })).toEqual(["No WBS groups"]);
+    expect(describeArrangement({ wbsLevel: 2, levels: 4, sort: "date" })).toEqual(["WBS level 2 of 4", "Sorted by date"]);
+  });
+
+  test("is in the header of the page", async () => {
+    const { blob } = await buildPdf(
+      { schedule, rows: allRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), view: { wbsLevel: 1, levels: 3, sort: "date" } },
+      { compress: false },
+    );
+    expect(shown(pdfString(await blob.arrayBuffer())).some((l) => l.includes("WBS level 1 of 3") && l.includes("Sorted by date"))).toBe(true);
   });
 });

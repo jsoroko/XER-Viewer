@@ -130,7 +130,11 @@ the browser and never leaves your machine, so there is no backend.
       As on screen, it is left out when the printed span is so long that a day would be under a point wide.
     - **Rows and chart ends** – the PDF prints the rows as listed, so **No groups** and the WBS level are honoured.
       The chart is sized to the activities printed (as Visible Activities does on screen), with a margin at each end,
-      and a label that would run off the right edge moves to the left of its bar.
+      and a label that would run off the right edge moves to the left of its bar. The header line also says when the
+      WBS level is shallower than the whole tree ("WBS level 2 of 4", "No WBS groups") or the rows are sorted by date.
+    - **Legend** – the key at the foot of each page is built from the same list as the **Legend** button, in the same
+      groups, and lists only what is on that sheet (the row markers only while comparing, the trace only while one is
+      showing). It runs to a second line when it needs one, and the page holds fewer rows to make room.
     - **Today** – the dashed line, as before.
     - **Traced path** – a driving-logic trace is printed as on screen: its rows tinted, its bars outlined, its links
       drawn and everything else faded, with the trace named in the header ("Path only" when that switch is on). A

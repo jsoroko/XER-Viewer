@@ -3,11 +3,13 @@ import { FIELDS, OPERATORS, type AdvancedFilter } from "./advancedFilter";
 import { fmtShift, shiftDays, type ActivityChange } from "./compare";
 import { COMPARE_COLUMNS, compareColumnCell } from "./compareColumns";
 import { fmtDate, fmtDateTime, fmtDays } from "./format";
+import { buildLegend, type LegendGroup, type LegendKey } from "./legend";
 import {
   ACTIVITY_FILTER_LABEL,
   DATE_MODE_LABEL,
   describeDateRange,
   type ActivityFilter,
+  type ActivitySort,
   type DateMode,
   type Row,
 } from "./scheduleRows";
@@ -43,14 +45,16 @@ const SHADING_MIN_PT_PER_DAY = 1;
 const ROW_H = 13.5;
 const COL_HEAD_H = 30;
 const FOOTER_H = 22;
+const LEGEND_LINE_H = 10;
 const BASE_HEADER_H = 34;
 const FILTER_LINE_H = 9.5;
 const MAX_FILTER_LINES = 3;
 
 export const headerHeight = (filterLines: number) => BASE_HEADER_H + filterLines * FILTER_LINE_H;
 
-export function rowsPerPage(filterLines = 1): number {
-  const body = PAGE_H - 2 * MARGIN - headerHeight(filterLines) - COL_HEAD_H - FOOTER_H;
+/** `legendLines` is how many lines the legend takes at the foot of the page; the first is already in the footer. */
+export function rowsPerPage(filterLines = 1, legendLines = 1): number {
+  const body = PAGE_H - 2 * MARGIN - headerHeight(filterLines) - COL_HEAD_H - FOOTER_H - (Math.max(1, legendLines) - 1) * LEGEND_LINE_H;
   return Math.floor(body / ROW_H);
 }
 
@@ -231,6 +235,26 @@ export interface PrintInput {
   compare?: { label: string; changes: ReadonlyMap<string, ActivityChange>; showBaseline: boolean } | null;
   /** While comparing: the baseline and change columns switched on, to print after the optional columns. */
   compareColumns?: readonly string[];
+  /** How the rows were arranged, so the sheet says so (see describeArrangement). Omit for the defaults. */
+  view?: PrintView;
+}
+
+export interface PrintView {
+  /** WBS levels shown as rows of their own: null = all of them, 0 = no groups. */
+  wbsLevel: number | null;
+  /** How many levels this project's WBS has. */
+  levels: number;
+  sort: ActivitySort;
+}
+
+/** What differs from the defaults in how the rows are arranged, for the header: "WBS level 2 of 4", "Sorted by date". */
+export function describeArrangement(view: PrintView | undefined): string[] {
+  if (!view) return [];
+  const out: string[] = [];
+  if (view.wbsLevel === 0) out.push("No WBS groups");
+  else if (view.wbsLevel !== null && view.wbsLevel < view.levels) out.push(`WBS level ${view.wbsLevel} of ${view.levels}`);
+  if (view.sort === "date") out.push("Sorted by date");
+  return out;
 }
 
 export interface PdfOptions {
@@ -264,11 +288,10 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   if (trace && !filters.path) described.push(`Traced path: ${trace.label}`);
   const compare = input.compare ?? null;
   if (compare) described.unshift(compare.label);
+  described.push(...describeArrangement(input.view));
   const filterText = pdfText(described.length ? described.join("   |   ") : "No filters applied");
   const filterLines = (doc.splitTextToSize(filterText, PAGE_W - 2 * MARGIN - 260) as string[]).slice(0, MAX_FILTER_LINES);
   const headH = headerHeight(filterLines.length);
-  const perPage = rowsPerPage(filterLines.length);
-  const pages = Math.max(1, Math.ceil(rows.length / perPage));
 
   // Time axis, fitted to the activities actually printed
   const printed = printedSpan(rows) ?? schedule.range;
@@ -305,6 +328,19 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   const pattern = schedule.defaultCalendar?.pattern ?? null;
   const shading =
     input.shadeNonWorking && pattern && ganttW / days >= SHADING_MIN_PT_PER_DAY ? nonWorkingRuns(pattern, extent.start, extent.end) : [];
+
+  // The legend explains only what is on the chart, so it is known once the chart is; how many lines it needs decides how many rows fit.
+  const legend = buildLegend({
+    today: todayX !== null,
+    nonWorking: shading.length > 0,
+    links: false, // the links of a selected activity are never printed
+    trace: trace !== null && trace.ids.size > 0,
+    droppedPath: dropped !== null,
+    compare: compare ? { baseline: compare.showBaseline } : null,
+  });
+  const legendLines = layoutLegend(doc, legend, PAGE_W - 2 * MARGIN - LEGEND_RESERVED_W);
+  const perPage = rowsPerPage(filterLines.length, legendLines.length);
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
 
   for (let page = 0; page < pages; page++) {
     if (page > 0) doc.addPage("a3", "landscape");
@@ -525,13 +561,7 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     }
 
     // -- Footer: legend -------------------------------------------------------------------------------------------------
-    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, {
-      today: todayX !== null,
-      nonWorking: shading.length > 0,
-      path: trace !== null && trace.ids.size > 0,
-      dropped: dropped !== null,
-      compare: compare ? { baseline: compare.showBaseline } : null,
-    });
+    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, legendLines);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     ink(doc, C.muted);
@@ -738,90 +768,133 @@ function drawTaskBar(
   label(x2 + 2, x1);
 }
 
-function drawLegend(
-  doc: jsPDF,
-  x0: number,
-  y: number,
-  show: { today: boolean; nonWorking: boolean; path: boolean; dropped: boolean; compare: { baseline: boolean } | null },
-) {
-  doc.setFont("helvetica", "normal");
+// ---- Legend -------------------------------------------------------------------------------------------------------
+const LEGEND_ITEM_GAP = 14;
+const LEGEND_GROUP_GAP = 24;
+/** Room kept at the right of the footer for "XER Viewer". */
+const LEGEND_RESERVED_W = 80;
+/** Swatches are 14 pt wide unless they are a line or a marker. */
+const SWATCH_W: Partial<Record<LegendKey, number>> = { milestone: 8, dataDate: 4, today: 4, markNew: 8, markRemoved: 8, markModified: 8 };
+const swatchW = (k: LegendKey) => SWATCH_W[k] ?? 14;
+
+const entryWidth = (doc: jsPDF, key: LegendKey, label: string) => swatchW(key) + 4 + doc.getTextWidth(label);
+
+/** A group is its title and then its entries, side by side. Measured with the fonts it is drawn in. */
+function groupWidth(doc: jsPDF, g: LegendGroup): number {
   doc.setFontSize(7);
-  let x = x0;
-  const item = (label: string, swatch: (x: number) => void, w: number) => {
-    swatch(x);
-    ink(doc, C.muted);
-    doc.text(label, x + w + 4, y, { baseline: "middle" });
-    x += w + 4 + doc.getTextWidth(label) + 14;
-  };
-  const bar = (c: RGB) => (sx: number) => {
-    fill(doc, c);
-    doc.rect(sx, y - 3, 14, 6, "F");
-  };
-  if (show.compare) {
-    item("New", bar(C.added), 14);
-    item("Modified", bar(C.modified), 14);
-    item("Removed", (sx) => {
-      stroke(doc, C.removed);
-      doc.setLineWidth(0.8);
-      doc.setLineDashPattern([2, 1.5], 0);
-      doc.rect(sx, y - 3, 14, 6, "S");
-      doc.setLineDashPattern([], 0);
-    }, 14);
-    item("Unchanged", bar(C.unchanged), 14);
-    if (show.compare.baseline) {
-      item("Baseline", (sx) => {
-        fill(doc, C.baseline);
-        doc.rect(sx, y - 0.8, 14, 1.6, "F");
-      }, 14);
+  doc.setFont("helvetica", "bold");
+  let w = doc.getTextWidth(g.title) + 8;
+  doc.setFont("helvetica", "normal");
+  g.entries.forEach((e, i) => (w += entryWidth(doc, e.key, e.label) + (i < g.entries.length - 1 ? LEGEND_ITEM_GAP : 0)));
+  return w;
+}
+
+/** Packs whole groups onto lines of at most `maxW`: a group is not split across lines unless it is wider than one. */
+export function layoutLegend(doc: jsPDF, groups: LegendGroup[], maxW: number): LegendGroup[][] {
+  const lines: LegendGroup[][] = [[]];
+  let used = 0;
+  for (const g of groups) {
+    const w = groupWidth(doc, g);
+    const line = lines[lines.length - 1]!;
+    if (line.length > 0 && used + LEGEND_GROUP_GAP + w > maxW) {
+      lines.push([g]);
+      used = w;
+    } else {
+      line.push(g);
+      used += (line.length > 1 ? LEGEND_GROUP_GAP : 0) + w;
     }
-  } else {
-    item("Complete", bar(C.complete), 14);
-    item("Actual", bar(C.actual), 14);
-    item("Remaining", bar(C.remaining), 14);
-    item("Critical", bar(C.critActual), 14);
   }
-  item("Level of effort", bar(C.loe), 14);
-  item("WBS group", bar(C.summary), 14);
-  item("Milestone", (sx) => {
-    fill(doc, C.text);
-    diamond(doc, sx + 4, y, 3.6);
-  }, 8);
-  item("Data date", (sx) => {
-    stroke(doc, C.dataDate);
-    doc.setLineWidth(0.8);
-    doc.line(sx + 2, y - 4, sx + 2, y + 4);
-  }, 4);
-  if (show.nonWorking) {
-    item("Non-working", (sx) => {
-      fill(doc, C.nonWorking);
-      stroke(doc, C.muted);
-      doc.setLineWidth(0.3);
-      doc.rect(sx, y - 3, 14, 6, "FD");
-    }, 14);
-  }
-  if (show.path) {
-    item("Traced path", (sx) => {
-      stroke(doc, C.path);
-      doc.setLineWidth(0.9);
-      doc.rect(sx, y - 3, 14, 6, "S");
-    }, 14);
-  }
-  if (show.dropped) {
-    item("Dropped off the path", (sx) => {
-      stroke(doc, C.baseline);
+  return lines;
+}
+
+/** Draws the swatch of one legend entry, as the thing looks on the chart, centred on `y`. */
+function drawSwatch(doc: jsPDF, key: LegendKey, x: number, y: number) {
+  const bar = (c: RGB) => {
+    fill(doc, c);
+    doc.rect(x, y - 3, 14, 6, "F");
+  };
+  const dashedBox = (c: RGB, width: number) => {
+    stroke(doc, c);
+    doc.setLineWidth(width);
+    doc.setLineDashPattern([2, 1.5], 0);
+    doc.rect(x, y - 3, 14, 6, "S");
+    doc.setLineDashPattern([], 0);
+  };
+  const marker = (c: RGB, sign: string, text: RGB) => {
+    fill(doc, c);
+    doc.rect(x, y - 3.5, 7, 7, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    ink(doc, text);
+    doc.text(sign, x + 3.5, y, { align: "center", baseline: "middle" });
+    doc.setFont("helvetica", "normal");
+  };
+  switch (key) {
+    case "complete": return bar(C.complete);
+    case "actual": return bar(C.actual);
+    case "remaining": return bar(C.remaining);
+    case "critical": return bar(C.critActual);
+    case "new": return bar(C.added);
+    case "modified": return bar(C.modified);
+    case "unchanged": return bar(C.unchanged);
+    case "removed": return dashedBox(C.removed, 0.8);
+    case "baseline":
+      fill(doc, C.baseline);
+      return void doc.rect(x, y - 0.8, 14, 1.6, "F");
+    case "loe": return bar(C.loe);
+    case "wbs": return bar(C.summary);
+    case "milestone":
+      fill(doc, C.text);
+      return diamond(doc, x + 4, y, 3.6);
+    case "dataDate":
+      stroke(doc, C.dataDate);
       doc.setLineWidth(0.8);
-      doc.setLineDashPattern([2, 1.5], 0);
-      doc.rect(sx, y - 3, 14, 6, "S");
-      doc.setLineDashPattern([], 0);
-    }, 14);
-  }
-  if (show.today) {
-    item("Today", (sx) => {
+      return void doc.line(x + 2, y - 4, x + 2, y + 4);
+    case "today":
       stroke(doc, C.today);
       doc.setLineWidth(0.8);
       doc.setLineDashPattern([2, 1.5], 0);
-      doc.line(sx + 2, y - 4, sx + 2, y + 4);
-      doc.setLineDashPattern([], 0);
-    }, 4);
+      doc.line(x + 2, y - 4, x + 2, y + 4);
+      return void doc.setLineDashPattern([], 0);
+    case "nonWorking":
+      fill(doc, C.nonWorking);
+      stroke(doc, C.muted);
+      doc.setLineWidth(0.3);
+      return void doc.rect(x, y - 3, 14, 6, "FD");
+    case "tracedPath":
+      stroke(doc, C.path);
+      doc.setLineWidth(0.9);
+      return void doc.rect(x, y - 3, 14, 6, "S");
+    case "droppedPath": return dashedBox(C.baseline, 0.8);
+    case "markNew": return marker(C.added, KIND_MARK.added, [255, 255, 255]);
+    case "markRemoved": return marker(C.removed, KIND_MARK.removed, [255, 255, 255]);
+    case "markModified": return marker(C.modified, KIND_MARK.modified, C.text);
+    case "predecessor":
+    case "successor":
+      return; // links are never printed, so the legend is never asked for these
   }
+}
+
+/** Draws the legend, laid out by `layoutLegend`; the last line sits at `y` and any others above it. */
+function drawLegend(doc: jsPDF, x0: number, y: number, lines: LegendGroup[][]) {
+  lines.forEach((line, i) => {
+    const ly = y - (lines.length - 1 - i) * LEGEND_LINE_H;
+    let x = x0;
+    for (const g of line) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      ink(doc, C.muted);
+      doc.text(g.title, x, ly, { baseline: "middle" });
+      x += doc.getTextWidth(g.title) + 8;
+      for (const e of g.entries) {
+        drawSwatch(doc, e.key, x, ly);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        ink(doc, C.muted);
+        doc.text(e.label, x + swatchW(e.key) + 4, ly, { baseline: "middle" });
+        x += entryWidth(doc, e.key, e.label) + LEGEND_ITEM_GAP;
+      }
+      x += LEGEND_GROUP_GAP - LEGEND_ITEM_GAP;
+    }
+  });
 }
