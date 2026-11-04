@@ -492,4 +492,34 @@ describe("comparing two programmes", () => {
     expect(await render(false)).not.toContain("Dropped off the path");
     expect((await render(true)).some((l) => l.includes("compared with the baseline"))).toBe(true);
   });
+
+  test("prints the baseline and change columns that are switched on, after the others", async () => {
+    const { blob } = await buildPdf(
+      {
+        schedule: matched.schedule,
+        rows: compareRows,
+        filters: noFilters,
+        matched: 56,
+        total: 56,
+        generatedAt: new Date(2026, 8, 21, 14, 5),
+        compare,
+        compareColumns: ["baseFinish", "dFinish"],
+      },
+      { compress: false },
+    );
+    const lines = shown(pdfString(await blob.arrayBuffer()));
+    expect(lines).toContain("Base Finish");
+    expect(lines).toContain("Chg Finish");
+    expect(lines).not.toContain("Base Start");
+    expect(lines).toContain("+14d"); // PR1030's finish moved two weeks
+    expect(lines).toContain("21-Apr-26"); // and where it finished before
+  });
+
+  test("leaves those columns out of a plain print even if they were left switched on", async () => {
+    const { blob } = await buildPdf(
+      { schedule, rows: allRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), compareColumns: ["baseStart"] },
+      { compress: false },
+    );
+    expect(shown(pdfString(await blob.arrayBuffer()))).not.toContain("Base Start");
+  });
 });

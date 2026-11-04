@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib/compare";
+import { COMPARE_COLUMNS, DEFAULT_COMPARE_COLUMNS, compareColumnCell, type CompareColumn, type CompareColumnKey } from "../lib/compareColumns";
 import { compareTrace } from "../lib/compareTrace";
 import { downloadBlob } from "../lib/csv";
 import { describeTrace, runTrace, type TraceMode, type TraceSpec } from "../lib/drivingPath";
@@ -62,6 +63,8 @@ const COLUMNS = [
 const FIXED_W = COLUMNS.reduce((n, c) => n + c.w, 0);
 // The vertical line between adjacent columns, in both the header and the rows.
 const colBorder = "border-l border-slate-100 dark:border-slate-800";
+// The first baseline / change column, set off from the ordinary columns before it.
+const firstCompareBorder = "border-l border-slate-300 dark:border-slate-600";
 
 /** Non-working shading is only useful (and cheap enough) once days are a few pixels wide. */
 const SHADING_MIN_PX_PER_DAY = 3;
@@ -127,8 +130,14 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   // and not reset per project (like the theme, not like a filter).
   const [enabledColumns, setEnabledColumns] = usePersistedStrings("xerview-columns", []);
   const activeColumns = useMemo(() => OPTIONAL_COLUMNS.filter((c) => enabledColumns.includes(c.key)), [enabledColumns]);
+  // The baseline and change columns, offered (and shown) only while two programmes are compared.
+  const [enabledCompareColumns, setEnabledCompareColumns] = usePersistedStrings("xerview-compare-columns", DEFAULT_COMPARE_COLUMNS);
+  const activeCompareColumns = useMemo(
+    () => (compare.active ? COMPARE_COLUMNS.filter((c) => enabledCompareColumns.includes(c.key)) : []),
+    [compare.active, enabledCompareColumns],
+  );
   // How much of the left panel the fixed and optional columns need; whatever is left goes to the activity name.
-  const fixedW = FIXED_W + activeColumns.reduce((n, c) => n + c.width, 0);
+  const fixedW = FIXED_W + activeColumns.reduce((n, c) => n + c.width, 0) + activeCompareColumns.reduce((n, c) => n + c.width, 0);
   const leftMin = fixedW + 220;
   const leftDefault = fixedW + 380;
   const [leftW, setLeftW] = useState(() => Math.max(leftMin, Math.min(leftDefault, Math.round(window.innerWidth * 0.45))));
@@ -461,6 +470,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
           total: schedule.stats.activities,
           today: showToday ? today : null,
           columns: enabledColumns,
+          compareColumns: enabledCompareColumns,
           shadeNonWorking: showNonWorking && pattern !== null,
           compare:
             compare.active && compare.comparison && compare.baseline && compare.current
@@ -629,6 +639,15 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
           <ColumnsMenu
             enabled={enabledColumns}
             onToggle={(key, on) => setEnabledColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key)))}
+            compare={
+              compare.active
+                ? {
+                    enabled: enabledCompareColumns,
+                    onToggle: (key: CompareColumnKey, on) =>
+                      setEnabledCompareColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key))),
+                  }
+                : null
+            }
           />
           <TraceMenu schedule={schedule} selected={detailActivity} active={trace !== null} onTrace={startTrace} />
           <CompareMenu compare={compare} />
@@ -759,6 +778,16 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                   {c.label}
                 </div>
               ))}
+              {activeCompareColumns.map((c, i) => (
+                <div
+                  key={c.key}
+                  className={`shrink-0 px-1 pb-1.5 text-right ${i === 0 ? firstCompareBorder : colBorder}`}
+                  style={{ width: c.width }}
+                  title={c.title}
+                >
+                  {c.label}
+                </div>
+              ))}
               <div
                 role="separator"
                 aria-orientation="vertical"
@@ -874,6 +903,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 change={row.kind === "task" ? (compare.comparison?.changes.get(row.task.id) ?? null) : null}
                 showBaseline={compare.showBaseline}
                 columns={activeColumns}
+                compareColumns={activeCompareColumns}
                 onToggle={toggle}
                 onSelect={onSelect}
               />
@@ -1008,11 +1038,12 @@ interface RowProps {
   change: ActivityChange | null;
   showBaseline: boolean;
   columns: OptionalColumn[];
+  compareColumns: CompareColumn[];
   onToggle: (id: string) => void;
   onSelect: (id: string | null) => void;
 }
 
-function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, change, showBaseline, columns, onToggle, onSelect }: RowProps) {
+function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, change, showBaseline, columns, compareColumns, onToggle, onSelect }: RowProps) {
   const isWbs = row.kind === "wbs";
   const onPath = trace === "on" && !selected;
   const kind = change && change.kind !== "unchanged" ? change.kind : null;
@@ -1041,9 +1072,9 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
     >
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
         {isWbs ? (
-          <WbsCells row={row} treeW={treeW} columns={columns} />
+          <WbsCells row={row} treeW={treeW} columns={columns} compareColumns={compareColumns} />
         ) : (
-          <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} change={change} />
+          <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} compareColumns={compareColumns} change={change} />
         )}
       </div>
       <div className={`relative shrink-0 overflow-hidden ${trace === "off" ? "opacity-30" : ""}`} style={{ width: timeline.width }}>
@@ -1059,7 +1090,17 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
 
 const numCell = "shrink-0 truncate px-1 tabular-nums";
 
-function WbsCells({ row, treeW, columns }: { row: Extract<Row, { kind: "wbs" }>; treeW: number; columns: OptionalColumn[] }) {
+function WbsCells({
+  row,
+  treeW,
+  columns,
+  compareColumns,
+}: {
+  row: Extract<Row, { kind: "wbs" }>;
+  treeW: number;
+  columns: OptionalColumn[];
+  compareColumns: CompareColumn[];
+}) {
   const { node } = row;
   return (
     <>
@@ -1086,21 +1127,33 @@ function WbsCells({ row, treeW, columns }: { row: Extract<Row, { kind: "wbs" }>;
       {columns.map((c) => (
         <div key={c.key} className={`${numCell} ${colBorder}`} style={{ width: c.width }} />
       ))}
+      {compareColumns.map((c, i) => (
+        <div key={c.key} className={`${numCell} ${i === 0 ? firstCompareBorder : colBorder}`} style={{ width: c.width }} />
+      ))}
     </>
   );
 }
+
+const CELL_TONE = {
+  later: "font-medium text-red-600 dark:text-red-400",
+  earlier: "font-medium text-green-700 dark:text-green-400",
+  new: "font-medium text-green-700 dark:text-green-400",
+  removed: "font-medium text-red-700 dark:text-red-400",
+} as const;
 
 function TaskCells({
   task,
   depth,
   treeW,
   columns,
+  compareColumns,
   change,
 }: {
   task: Activity;
   depth: number;
   treeW: number;
   columns: OptionalColumn[];
+  compareColumns: CompareColumn[];
   change: ActivityChange | null;
 }) {
   const float = task.status === "completed" ? "" : fmtDays(task.totalFloatHrs, task.dayHrs);
@@ -1160,6 +1213,20 @@ function TaskCells({
           {optionalColumnValue(c.key, task)}
         </div>
       ))}
+      {compareColumns.map((c, i) => {
+        const cell = compareColumnCell(c.key, task, change);
+        // A later date or longer duration gets a ▲ and an earlier or shorter one a ▼, ahead of the size of the move.
+        const text = cell.tone === "later" ? `▲ ${cell.text.slice(1)}` : cell.tone === "earlier" ? `▼ ${cell.text.slice(1)}` : cell.text;
+        return (
+          <div
+            key={c.key}
+            className={`${numCell} ${i === 0 ? firstCompareBorder : colBorder} text-right ${cell.tone ? CELL_TONE[cell.tone] : "text-slate-500 dark:text-slate-400"}`}
+            style={{ width: c.width }}
+          >
+            {text}
+          </div>
+        );
+      })}
     </>
   );
 }

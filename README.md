@@ -48,8 +48,12 @@ the browser and never leaves your machine, so there is no backend.
     changes, status and percent, constraints, renames. A strip under the toolbar names the two files and has a chip per kind
     of change, with its count, that switches that kind on or off (all on shows everything; unchanged activities
     show only then). **Compare by** in the menu chooses what counts as a difference (dates, duration, logic, progress,
-    constraints, names), and you can hide the baseline bars or the unchanged activities. The PDF prints the same
-    colours, markers, baseline bars and legend, with the two files named in its header.
+    constraints, names), and you can hide the baseline bars or the unchanged activities. The **Extra columns** menu gains a
+    **Compare** group while you compare: **Baseline Start / Finish / Dur** and **Δ Start / Finish / Dur**. A date's change is in
+    calendar days (▲ red when later, ▼ green when earlier; new and removed activities say so), and the change in duration is in the
+    activity's own working days, like the Orig column. Baseline Start, Baseline Finish and Δ Finish are on to begin with, and
+    the choice is remembered. The PDF prints the same colours, markers, baseline bars, legend and chosen columns, with the two
+    files named in its header.
 
     **Tracing while comparing** – a trace is run on both programmes, from the same Activity ID, and every step is marked:
     **on both** paths, **joined** the path (it drives now but didn't), or **dropped** off it (it drove in the baseline and
@@ -180,7 +184,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/version.ts`, `appVersion.ts`, `scripts/release.ts` | Version numbering, the version and build date shown on the start screen, the release command |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
 | `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path, compared programmes |
-| `src/lib/compare.ts`, `compareTrace.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; tracing both and marking joined / dropped steps; loading the second file |
+| `src/lib/compare.ts`, `compareTrace.ts`, `compareColumns.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; tracing both and marking joined / dropped steps; loading the second file |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file and the five most recent; load / restore / close flow |
 | `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, CompareMenu / CompareBar, TablesView |
 | `scripts/generate-sample.ts` | Regenerates `src/sample/sample.xer` (`bun run sample`) |

@@ -1,6 +1,7 @@
 import type { jsPDF } from "jspdf";
 import { FIELDS, OPERATORS, type AdvancedFilter } from "./advancedFilter";
 import { fmtShift, shiftDays, type ActivityChange } from "./compare";
+import { COMPARE_COLUMNS, compareColumnCell } from "./compareColumns";
 import { fmtDate, fmtDateTime, fmtDays } from "./format";
 import {
   ACTIVITY_FILTER_LABEL,
@@ -229,6 +230,8 @@ export interface PrintInput {
    * baseline. `label` goes in the header, e.g. "Comparing Rev A (12-Jan-26) with Rev B (02-Mar-26)".
    */
   compare?: { label: string; changes: ReadonlyMap<string, ActivityChange>; showBaseline: boolean } | null;
+  /** While comparing: the baseline and change columns switched on, to print after the optional columns. */
+  compareColumns?: readonly string[];
 }
 
 export interface PdfOptions {
@@ -281,7 +284,9 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   }
   const padded = paddedRange(span);
   const extra = OPTIONAL_COLUMNS.filter((c) => input.columns?.includes(c.key)).map((c) => ({ ...c, ...PDF_COLUMNS[c.key] }));
-  const tableW = FIXED_TABLE_W + extra.reduce((n, c) => n + c.w, 0);
+  // The baseline and change columns come last, and only while two programmes are being compared.
+  const compareCols = compare ? COMPARE_COLUMNS.filter((c) => input.compareColumns?.includes(c.key)) : [];
+  const tableW = FIXED_TABLE_W + extra.reduce((n, c) => n + c.w, 0) + compareCols.reduce((n, c) => n + c.pdf.w, 0);
   const ganttX = MARGIN + tableW;
   const ganttW = PAGE_W - MARGIN - ganttX;
   // A fixed margin in points either side of the whole months paddedRange gives, so the first and last bars aren't against the edge.
@@ -347,6 +352,10 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     for (const c of extra) {
       doc.text(c.label, c.align === "right" ? x + c.w - 4 : x + 4, headY, { align: c.align, baseline: "middle" });
       x += c.w;
+    }
+    for (const c of compareCols) {
+      doc.text(c.pdf.label, x + c.pdf.w - 4, headY, { align: "right", baseline: "middle" });
+      x += c.pdf.w;
     }
     stroke(doc, C.muted);
     doc.setLineWidth(0.4);
@@ -474,6 +483,12 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
         for (const c of extra) {
           doc.text(pdfText(optionalColumnValue(c.key, a)), c.align === "right" ? ex + c.w - 4 : ex + 4, mid, { align: c.align, baseline: "middle" });
           ex += c.w;
+        }
+        for (const c of compareCols) {
+          const cell = compareColumnCell(c.key, a, change);
+          ink(doc, cell.tone === "later" || cell.tone === "removed" ? C.red : cell.tone === "earlier" || cell.tone === "new" ? C.complete : C.muted);
+          doc.text(pdfText(cell.text.replace("−", "-")), ex + c.pdf.w - 4, mid, { align: "right", baseline: "middle" });
+          ex += c.pdf.w;
         }
         drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : offPath ? "dropped" : "off", change, compare?.showBaseline ?? false);
       }
