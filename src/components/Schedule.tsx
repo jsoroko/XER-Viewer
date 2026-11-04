@@ -971,6 +971,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 onSelectGroup={selectGroup}
                 onExpandGroup={expandGroup}
                 onCollapseGroup={collapseGroup}
+                groupAction={row.kind === "wbs" ? groupAction(collapsed, row.node) : null}
               />
             ))}
           </div>
@@ -1111,6 +1112,17 @@ interface RowProps {
   onSelectGroup: (id: string) => void;
   onExpandGroup: (id: string) => void;
   onCollapseGroup: (id: string) => void;
+  /** What the group row's one button does, if it has any: see `groupAction`. */
+  groupAction: GroupAction | null;
+}
+
+/**
+ * The one button a group row offers: open everything inside the group if any of it is closed, otherwise close it all.
+ * Null for a group with nothing in it.
+ */
+type GroupAction = "expand" | "collapse";
+function groupAction(collapsed: ReadonlySet<string>, node: WbsNode): GroupAction | null {
+  return canExpandWithin(collapsed, node) ? "expand" : canCollapseWithin(collapsed, node) ? "collapse" : null;
 }
 
 function ScheduleRow({
@@ -1133,6 +1145,7 @@ function ScheduleRow({
   onSelectGroup,
   onExpandGroup,
   onCollapseGroup,
+  groupAction,
 }: RowProps) {
   const isWbs = row.kind === "wbs";
   const onPath = trace === "on" && !selected;
@@ -1171,6 +1184,7 @@ function ScheduleRow({
             columns={columns}
             compareColumns={compareColumns}
             onToggle={onToggle}
+            action={groupAction}
             onExpandGroup={onExpandGroup}
             onCollapseGroup={onCollapseGroup}
           />
@@ -1199,6 +1213,7 @@ function WbsCells({
   columns,
   compareColumns,
   onToggle,
+  action,
   onExpandGroup,
   onCollapseGroup,
 }: {
@@ -1209,6 +1224,7 @@ function WbsCells({
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
   onToggle: (id: string) => void;
+  action: GroupAction | null;
   onExpandGroup: (id: string) => void;
   onCollapseGroup: (id: string) => void;
 }) {
@@ -1238,35 +1254,22 @@ function WbsCells({
         >
           {fmtInt(row.matches ?? node.activityCount)}
         </span>
-        {/* The same two actions as the toolbar's, for this group: on hover, and while it is the selected one. */}
-        <span className={`ml-auto shrink-0 gap-1 ${selected ? "flex" : "hidden group-hover:flex"}`}>
+        {/* One button, since it can only be one or the other: open everything inside this group if any of it is closed, else close it. On hover, and while the group is selected. */}
+        {action && (
           <button
             type="button"
-            className="flex size-5 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-            aria-label={`Expand everything inside ${node.name}`}
-            title="Expand everything inside this group"
+            className={`ml-auto size-5 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${selected ? "flex" : "hidden group-hover:flex"}`}
+            aria-label={action === "expand" ? `Expand everything inside ${node.name}` : `Collapse ${node.name} and everything inside it`}
+            title={action === "expand" ? "Expand everything inside this group" : "Collapse this group and everything inside it"}
             onClick={(e) => {
               e.stopPropagation();
-              onExpandGroup(node.id);
+              (action === "expand" ? onExpandGroup : onCollapseGroup)(node.id);
             }}
             onDoubleClick={(e) => e.stopPropagation()}
           >
-            <LuUnfoldVertical size={12} aria-hidden />
+            {action === "expand" ? <LuUnfoldVertical size={12} aria-hidden /> : <LuFoldVertical size={12} aria-hidden />}
           </button>
-          <button
-            type="button"
-            className="flex size-5 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-            aria-label={`Collapse ${node.name} and everything inside it`}
-            title="Collapse this group and everything inside it"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCollapseGroup(node.id);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            <LuFoldVertical size={12} aria-hidden />
-          </button>
-        </span>
+        )}
       </div>
       {fixed.map((c) => (
         <div key={c.key} className={`${numCell} ${colBorder}`} style={{ width: c.width }}>
