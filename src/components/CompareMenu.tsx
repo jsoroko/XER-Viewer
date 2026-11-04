@@ -63,7 +63,13 @@ function AddFile({ compare, label }: { compare: CompareApi; label: string }) {
       >
         <LuUpload size={20} aria-hidden className="text-slate-500 dark:text-slate-400" />
         {loading !== null ? (
-          <span className="text-sm font-medium">Reading {loading}…</span>
+          <>
+            <span className="text-sm font-medium">Reading…</span>
+            {/* A file name is often one long word with no spaces, so it is cut short rather than left to run out of the box. */}
+            <span className="w-full truncate text-xs text-slate-500 dark:text-slate-400" title={loading}>
+              {loading}
+            </span>
+          </>
         ) : (
           <>
             <span className="text-sm font-medium">Drop an .xer file here</span>
@@ -240,8 +246,8 @@ export function CompareMenu({ compare }: { compare: CompareApi }) {
                   </div>
                 </div>
                 {file && file.projects.length > 1 && (
-                  <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-                    Project in {file.name}
+                  <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400" title={`Project in ${file.name}`}>
+                    <span className="shrink-0">Project</span>
                     <select
                       className="h-7 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                       value={compare.projectId}
