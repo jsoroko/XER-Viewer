@@ -12,7 +12,7 @@ import {
   type Row,
 } from "./scheduleRows";
 import { routeLink, SIDES, type Point, type Side } from "./links";
-import { OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumnKey } from "./scheduleColumns";
+import { FIXED_COLUMNS, OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumnKey } from "./scheduleColumns";
 import { buildTicks, DAY, makeTimeline, paddedRange } from "./timeline";
 import { nonWorkingRuns } from "./xer/calendar";
 import { isMilestone, type Activity, type Relationship, type Schedule } from "./xer/model";
@@ -31,9 +31,6 @@ const MARGIN = 28;
 /** Empty space kept at each end of the printed chart. */
 const CHART_MARGIN_PT = 10;
 const TREE_W = 262;
-const COL_W = { orig: 34, rem: 34, start: 52, finish: 52, tf: 34 } as const;
-/** The five fixed columns; the optional ones (see PDF_COLUMNS) extend the table to the right of these. */
-const FIXED_TABLE_W = TREE_W + COL_W.orig + COL_W.rem + COL_W.start + COL_W.finish + COL_W.tf;
 /** The optional columns as printed: shorter labels and widths in points, since there is no tooltip on paper. */
 const PDF_COLUMNS: Record<OptionalColumnKey, { label: string; w: number }> = {
   percent: { label: "%", w: 30 },
@@ -210,6 +207,8 @@ export interface PrintInput {
   generatedAt?: Date;
   /** Draw a dashed line at this time (ms), if it falls inside the printed time axis. Omit or null for none. */
   today?: number | null;
+  /** The columns switched off from Orig, Rem, Start, Finish and TF (see FIXED_COLUMNS), which are printed otherwise. */
+  hiddenColumns?: readonly string[];
   /** The optional columns switched on, to print after TF. Order does not matter: they print in the table's own order. */
   columns?: readonly string[];
   /** Shade weekends and holidays on the chart, from the project's default calendar. */
@@ -286,7 +285,9 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   const extra = OPTIONAL_COLUMNS.filter((c) => input.columns?.includes(c.key)).map((c) => ({ ...c, ...PDF_COLUMNS[c.key] }));
   // The baseline and change columns come last, and only while two programmes are being compared.
   const compareCols = compare ? COMPARE_COLUMNS.filter((c) => input.compareColumns?.includes(c.key)) : [];
-  const tableW = FIXED_TABLE_W + extra.reduce((n, c) => n + c.w, 0) + compareCols.reduce((n, c) => n + c.pdf.w, 0);
+  const fixedCols = FIXED_COLUMNS.filter((c) => !input.hiddenColumns?.includes(c.key));
+  const fixedW = TREE_W + fixedCols.reduce((n, c) => n + c.pdfWidth, 0);
+  const tableW = fixedW + extra.reduce((n, c) => n + c.w, 0) + compareCols.reduce((n, c) => n + c.pdf.w, 0);
   const ganttX = MARGIN + tableW;
   const ganttW = PAGE_W - MARGIN - ganttX;
   // A fixed margin in points either side of the whole months paddedRange gives, so the first and last bars aren't against the edge.
@@ -339,15 +340,9 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     const headY = headTop + COL_HEAD_H - 7;
     doc.text("Activity", MARGIN + 4, headY, { baseline: "middle" });
     let x = MARGIN + TREE_W;
-    for (const [label, w, align] of [
-      ["Orig", COL_W.orig, "right"],
-      ["Rem", COL_W.rem, "right"],
-      ["Start", COL_W.start, "left"],
-      ["Finish", COL_W.finish, "left"],
-      ["TF", COL_W.tf, "right"],
-    ] as const) {
-      doc.text(label, align === "right" ? x + w - 4 : x + 4, headY, { align, baseline: "middle" });
-      x += w;
+    for (const c of fixedCols) {
+      doc.text(c.label, c.align === "right" ? x + c.pdfWidth - 4 : x + 4, headY, { align: c.align, baseline: "middle" });
+      x += c.pdfWidth;
     }
     for (const c of extra) {
       doc.text(c.label, c.align === "right" ? x + c.w - 4 : x + 4, headY, { align: c.align, baseline: "middle" });
@@ -430,7 +425,14 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
         doc.setFont("helvetica", "normal");
         ink(doc, C.muted);
         doc.text(count, indent + headingW + 4, mid, { baseline: "middle" });
-        drawDates(doc, row.node.start, row.node.finish, mid);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        ink(doc, C.text);
+        let gx = MARGIN + TREE_W;
+        for (const c of fixedCols) {
+          if (c.key === "start" || c.key === "finish") doc.text(fmtDate(c.key === "start" ? row.node.start : row.node.finish), gx + 4, mid, { baseline: "middle" });
+          gx += c.pdfWidth;
+        }
         drawSummaryBar(doc, row.node.start, row.node.finish, mid, ganttX, ganttW, tl.x);
       } else {
         const a = row.task;
@@ -463,23 +465,31 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
           doc.line(nameX, mid, nameX + Math.min(doc.getTextWidth(pdfText(a.name)), cellRight - nameX), mid);
         }
 
-        ink(doc, C.text);
-        let cx = MARGIN + TREE_W;
-        doc.text(fmtDays(a.origDurHrs, a.dayHrs), cx + COL_W.orig - 4, mid, { align: "right", baseline: "middle" });
-        cx += COL_W.orig;
-        doc.text(fmtDays(a.remDurHrs, a.dayHrs), cx + COL_W.rem - 4, mid, { align: "right", baseline: "middle" });
         const was = change?.kind === "modified" ? change.before : null;
-        drawDates(doc, a.start, a.finish, mid, {
-          start: was && was.start !== a.start ? C.modifiedText : null,
-          finish: was && was.finish !== a.finish ? C.modifiedText : null,
-        });
-        if (a.status !== "completed") {
-          const tf = fmtDays(a.totalFloatHrs, a.dayHrs);
-          if (a.critical) ink(doc, C.red);
-          doc.text(tf, MARGIN + FIXED_TABLE_W - 4, mid, { align: "right", baseline: "middle" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        let cx = MARGIN + TREE_W;
+        for (const c of fixedCols) {
+          let text = "";
+          let color: RGB = C.text;
+          if (c.key === "orig") text = fmtDays(a.origDurHrs, a.dayHrs);
+          else if (c.key === "rem") text = fmtDays(a.remDurHrs, a.dayHrs);
+          else if (c.key === "start") {
+            text = fmtDate(a.start);
+            if (was && was.start !== a.start) color = C.modifiedText; // while comparing, a date that moved is amber
+          } else if (c.key === "finish") {
+            text = fmtDate(a.finish);
+            if (was && was.finish !== a.finish) color = C.modifiedText;
+          } else if (a.status !== "completed") {
+            text = fmtDays(a.totalFloatHrs, a.dayHrs);
+            if (a.critical) color = C.red;
+          }
+          ink(doc, color);
+          doc.text(text, c.align === "right" ? cx + c.pdfWidth - 4 : cx + 4, mid, { align: c.align, baseline: "middle" });
+          cx += c.pdfWidth;
         }
         ink(doc, C.text);
-        let ex = MARGIN + FIXED_TABLE_W;
+        let ex = cx;
         for (const c of extra) {
           doc.text(pdfText(optionalColumnValue(c.key, a)), c.align === "right" ? ex + c.w - 4 : ex + 4, mid, { align: c.align, baseline: "middle" });
           ex += c.w;
@@ -533,17 +543,6 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
 
   const bytes = doc.output("arraybuffer");
   return { blob: new Blob([bytes], { type: "application/pdf" }), pages };
-}
-
-// The start / finish columns sit between "Rem" and "TF".
-function drawDates(doc: jsPDF, start: number | null, finish: number | null, mid: number, colors?: { start: RGB | null; finish: RGB | null }) {
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  const x0 = MARGIN + TREE_W + COL_W.orig + COL_W.rem;
-  ink(doc, colors?.start ?? C.text);
-  doc.text(fmtDate(start), x0 + 4, mid, { baseline: "middle" });
-  ink(doc, colors?.finish ?? C.text);
-  doc.text(fmtDate(finish), x0 + COL_W.start + 4, mid, { baseline: "middle" });
 }
 
 function drawSummaryBar(doc: jsPDF, start: number | null, finish: number | null, mid: number, ganttX: number, ganttW: number, x: (t: number) => number) {

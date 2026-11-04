@@ -4,7 +4,7 @@ import type { Activity } from "./xer/model";
 
 /**
  * Table columns that exist only while two programmes are compared: the baseline's dates and duration, and how far each
- * has moved. Switched on from the Extra columns menu, like the other optional columns.
+ * has moved. Switched on from the Columns menu, like the other optional columns.
  *
  * The change in a date is in calendar days, the same unit as the `+14d` on the bars. The change in duration is in the
  * activity's own working days, the same unit as the Orig column it relates to.

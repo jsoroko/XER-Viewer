@@ -522,4 +522,16 @@ describe("comparing two programmes", () => {
     );
     expect(shown(pdfString(await blob.arrayBuffer()))).not.toContain("Base Start");
   });
+
+  test("leaves out the fixed columns that are switched off, and prints the rest", async () => {
+    const { blob } = await buildPdf(
+      { schedule, rows: allRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), hiddenColumns: ["orig", "rem", "tf"] },
+      { compress: false },
+    );
+    const lines = shown(pdfString(await blob.arrayBuffer()));
+    for (const gone of ["Orig", "Rem", "TF"]) expect(lines).not.toContain(gone);
+    for (const kept of ["Activity", "Start", "Finish"]) expect(lines).toContain(kept);
+    expect(lines).toContain("05-Jan-26");
+    expect(lines).not.toContain("15d"); // Concept Design's duration, no longer in any column
+  });
 });

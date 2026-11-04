@@ -29,7 +29,7 @@ import {
   type Timeline,
 } from "../lib/timeline";
 import { useVirtualRows } from "../lib/useVirtualRows";
-import { OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
+import { FIXED_COLUMNS, OPTIONAL_COLUMNS, optionalColumnValue, type FixedColumn, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
 import type { CompareApi } from "../state/useCompare";
 import { usePersistedBoolean } from "../state/usePersistedBoolean";
 import { usePersistedStrings } from "../state/usePersistedStrings";
@@ -53,14 +53,6 @@ import { STATUS_DOT, Switch, badgeClass, buttonClass, iconButtonClass, iconToggl
 const ROW_H = 26;
 const HEADER_H = 44;
 
-const COLUMNS = [
-  { key: "orig", label: "Orig", title: "Original duration, in days", w: 52 },
-  { key: "rem", label: "Rem", title: "Remaining duration, in days", w: 52 },
-  { key: "start", label: "Start", title: "Actual start if it has one, otherwise the early (forecast) start date", w: 82 },
-  { key: "finish", label: "Finish", title: "Actual finish if it has one, otherwise the early (forecast) finish date", w: 82 },
-  { key: "tf", label: "TF", title: "Total float, in days: how long this can slip before it delays the project finish", w: 50 },
-] as const;
-const FIXED_W = COLUMNS.reduce((n, c) => n + c.w, 0);
 // The vertical line between adjacent columns, in both the header and the rows.
 const colBorder = "border-l border-slate-100 dark:border-slate-800";
 // The first baseline / change column, set off from the ordinary columns before it.
@@ -130,6 +122,9 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   // and not reset per project (like the theme, not like a filter).
   const [enabledColumns, setEnabledColumns] = usePersistedStrings("xerview-columns", []);
   const activeColumns = useMemo(() => OPTIONAL_COLUMNS.filter((c) => enabledColumns.includes(c.key)), [enabledColumns]);
+  // Orig, Rem, Start, Finish and TF are on until switched off; what is remembered is the ones that were.
+  const [hiddenFixed, setHiddenFixed] = usePersistedStrings("xerview-columns-hidden", []);
+  const fixedColumns = useMemo(() => FIXED_COLUMNS.filter((c) => !hiddenFixed.includes(c.key)), [hiddenFixed]);
   // The baseline and change columns, offered (and shown) only while two programmes are compared.
   const [enabledCompareColumns, setEnabledCompareColumns] = usePersistedStrings("xerview-compare-columns", DEFAULT_COMPARE_COLUMNS);
   const activeCompareColumns = useMemo(
@@ -137,7 +132,10 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
     [compare.active, enabledCompareColumns],
   );
   // How much of the left panel the fixed and optional columns need; whatever is left goes to the activity name.
-  const fixedW = FIXED_W + activeColumns.reduce((n, c) => n + c.width, 0) + activeCompareColumns.reduce((n, c) => n + c.width, 0);
+  const fixedW =
+    fixedColumns.reduce((n, c) => n + c.width, 0) +
+    activeColumns.reduce((n, c) => n + c.width, 0) +
+    activeCompareColumns.reduce((n, c) => n + c.width, 0);
   const leftMin = fixedW + 220;
   const leftDefault = fixedW + 380;
   const [leftW, setLeftW] = useState(() => Math.max(leftMin, Math.min(leftDefault, Math.round(window.innerWidth * 0.45))));
@@ -470,6 +468,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
           total: schedule.stats.activities,
           today: showToday ? today : null,
           columns: enabledColumns,
+          hiddenColumns: hiddenFixed,
           compareColumns: enabledCompareColumns,
           shadeNonWorking: showNonWorking && pattern !== null,
           compare:
@@ -637,6 +636,13 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
           {wbsLevels > 0 && <WbsLevelSelect levels={wbsLevels} value={wbsDepth ?? wbsLevels} onChange={setWbsDepth} />}
           <ActivitySortSelect value={sortMode} onChange={(s) => setSortByDate(s === "date")} />
           <ColumnsMenu
+            hiddenFixed={hiddenFixed}
+            onFixedToggle={(key, on) => setHiddenFixed((cur) => (on ? cur.filter((k) => k !== key) : cur.includes(key) ? cur : [...cur, key]))}
+            onReset={() => {
+              setHiddenFixed([]);
+              setEnabledColumns([]);
+              setEnabledCompareColumns(DEFAULT_COMPARE_COLUMNS);
+            }}
             enabled={enabledColumns}
             onToggle={(key, on) => setEnabledColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key)))}
             compare={
@@ -758,11 +764,11 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
               <div className="min-w-0 flex-1 truncate px-3 pb-1.5" style={{ width: treeW }} title="Activity code and name">
                 Activity
               </div>
-              {COLUMNS.map((c) => (
+              {fixedColumns.map((c) => (
                 <div
                   key={c.key}
-                  className={`shrink-0 px-1 pb-1.5 ${colBorder} ${c.key === "start" || c.key === "finish" ? "text-left" : "text-right"}`}
-                  style={{ width: c.w }}
+                  className={`shrink-0 px-1 pb-1.5 ${colBorder} ${c.align === "left" ? "text-left" : "text-right"}`}
+                  style={{ width: c.width }}
                   title={c.title}
                 >
                   {c.label}
@@ -902,6 +908,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 }
                 change={row.kind === "task" ? (compare.comparison?.changes.get(row.task.id) ?? null) : null}
                 showBaseline={compare.showBaseline}
+                fixedColumns={fixedColumns}
                 columns={activeColumns}
                 compareColumns={activeCompareColumns}
                 onToggle={toggle}
@@ -1037,13 +1044,14 @@ interface RowProps {
   /** How this activity differs from the baseline, while two programmes are compared. */
   change: ActivityChange | null;
   showBaseline: boolean;
+  fixedColumns: FixedColumn[];
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
   onToggle: (id: string) => void;
   onSelect: (id: string | null) => void;
 }
 
-function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, change, showBaseline, columns, compareColumns, onToggle, onSelect }: RowProps) {
+function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, change, showBaseline, fixedColumns, columns, compareColumns, onToggle, onSelect }: RowProps) {
   const isWbs = row.kind === "wbs";
   const onPath = trace === "on" && !selected;
   const kind = change && change.kind !== "unchanged" ? change.kind : null;
@@ -1072,9 +1080,9 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
     >
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
         {isWbs ? (
-          <WbsCells row={row} treeW={treeW} columns={columns} compareColumns={compareColumns} />
+          <WbsCells row={row} treeW={treeW} fixed={fixedColumns} columns={columns} compareColumns={compareColumns} />
         ) : (
-          <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} compareColumns={compareColumns} change={change} />
+          <TaskCells task={row.task} depth={row.depth} treeW={treeW} fixed={fixedColumns} columns={columns} compareColumns={compareColumns} change={change} />
         )}
       </div>
       <div className={`relative shrink-0 overflow-hidden ${trace === "off" ? "opacity-30" : ""}`} style={{ width: timeline.width }}>
@@ -1093,11 +1101,13 @@ const numCell = "shrink-0 truncate px-1 tabular-nums";
 function WbsCells({
   row,
   treeW,
+  fixed,
   columns,
   compareColumns,
 }: {
   row: Extract<Row, { kind: "wbs" }>;
   treeW: number;
+  fixed: FixedColumn[];
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
 }) {
@@ -1116,14 +1126,11 @@ function WbsCells({
           {fmtInt(row.matches ?? node.activityCount)}
         </span>
       </div>
-      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[0].w + COLUMNS[1].w }} />
-      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[2].w }}>
-        {fmtDate(node.start)}
-      </div>
-      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[3].w }}>
-        {fmtDate(node.finish)}
-      </div>
-      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[4].w }} />
+      {fixed.map((c) => (
+        <div key={c.key} className={`${numCell} ${colBorder}`} style={{ width: c.width }}>
+          {c.key === "start" ? fmtDate(node.start) : c.key === "finish" ? fmtDate(node.finish) : null}
+        </div>
+      ))}
       {columns.map((c) => (
         <div key={c.key} className={`${numCell} ${colBorder}`} style={{ width: c.width }} />
       ))}
@@ -1145,6 +1152,7 @@ function TaskCells({
   task,
   depth,
   treeW,
+  fixed,
   columns,
   compareColumns,
   change,
@@ -1152,6 +1160,7 @@ function TaskCells({
   task: Activity;
   depth: number;
   treeW: number;
+  fixed: FixedColumn[];
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
   change: ActivityChange | null;
@@ -1190,24 +1199,25 @@ function TaskCells({
           {task.name}
         </span>
       </div>
-      <div className={`${numCell} ${colBorder} text-right ${origMark.className}`} style={{ width: COLUMNS[0].w }} title={origMark.title}>
-        {fmtDays(task.origDurHrs, task.dayHrs)}
-      </div>
-      <div className={`${numCell} ${colBorder} text-right ${remMark.className}`} style={{ width: COLUMNS[1].w }} title={remMark.title}>
-        {fmtDays(task.remDurHrs, task.dayHrs)}
-      </div>
-      <div className={`${numCell} ${colBorder} ${startMark.className}`} style={{ width: COLUMNS[2].w }} title={startMark.title}>
-        {fmtDate(task.start)}
-      </div>
-      <div className={`${numCell} ${colBorder} ${finishMark.className}`} style={{ width: COLUMNS[3].w }} title={finishMark.title}>
-        {fmtDate(task.finish)}
-      </div>
-      <div
-        className={`${numCell} ${colBorder} text-right ${task.critical ? "font-medium text-red-600 dark:text-red-400" : ""}`}
-        style={{ width: COLUMNS[4].w }}
-      >
-        {float}
-      </div>
+      {fixed.map((c) => {
+        const cell = {
+          orig: { text: fmtDays(task.origDurHrs, task.dayHrs), mark: origMark },
+          rem: { text: fmtDays(task.remDurHrs, task.dayHrs), mark: remMark },
+          start: { text: fmtDate(task.start), mark: startMark },
+          finish: { text: fmtDate(task.finish), mark: finishMark },
+          tf: { text: float, mark: { className: task.critical ? "font-medium text-red-600 dark:text-red-400" : "", title: undefined } },
+        }[c.key];
+        return (
+          <div
+            key={c.key}
+            className={`${numCell} ${colBorder} ${c.align === "right" ? "text-right" : ""} ${cell.mark.className}`}
+            style={{ width: c.width }}
+            title={cell.mark.title}
+          >
+            {cell.text}
+          </div>
+        );
+      })}
       {columns.map((c) => (
         <div key={c.key} className={`${numCell} ${colBorder} ${c.align === "right" ? "text-right" : ""}`} style={{ width: c.width }}>
           {optionalColumnValue(c.key, task)}

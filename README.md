@@ -48,7 +48,7 @@ the browser and never leaves your machine, so there is no backend.
     changes, status and percent, constraints, renames. A strip under the toolbar names the two files and has a chip per kind
     of change, with its count, that switches that kind on or off (all on shows everything; unchanged activities
     show only then). **Compare by** in the menu chooses what counts as a difference (dates, duration, logic, progress,
-    constraints, names), and you can hide the baseline bars or the unchanged activities. The **Extra columns** menu gains a
+    constraints, names), and you can hide the baseline bars or the unchanged activities. The **Columns** menu gains a
     **Compare** group while you compare: **Baseline Start / Finish / Dur** and **Δ Start / Finish / Dur**. A date's change is in
     calendar days (▲ red when later, ▼ green when earlier; new and removed activities say so), and the change in duration is in the
     activity's own working days, like the Orig column. Baseline Start, Baseline Finish and Δ Finish are on to begin with, and
@@ -77,11 +77,12 @@ the browser and never leaves your machine, so there is no backend.
     separate from the solid orange data date. It is included in the PDF while the switch is on.
   - **Non-working time** – switch **Non-working** on (it is remembered) to shade weekends and holidays from the project's default calendar
     with a tint darker than the grid lines, when zoomed in.
-  - **Columns** – the columns icon (next to Expand/Collapse all) adds any of four extra columns beyond the fixed
-    Orig / Rem / Start / Finish / TF: % Complete, Actual Start, Actual Finish and Free Float. Each is switched on
-    independently and remembered between visits; the icon is highlighted while any are on. Activity ID and
-    Calendar aren't offered, since their values run too long to fit one line. A faint vertical line separates every
-    column, fixed and extra alike, and every header has a tooltip explaining it.
+  - **Columns** – the columns icon (next to Expand/Collapse all) chooses which columns the table shows. Everything except the
+    activity itself can be switched off: Original duration, Remaining duration, Start, Finish and Total float are on to
+    begin with, and % Complete, Actual Start, Actual Finish and Free Float can be added. Each is switched independently
+    and remembered between visits, **Reset to default columns** puts them back, and the icon is highlighted while the choice
+    differs from the default. Activity ID and Calendar aren't offered, since their values run too long to fit one line. A faint
+    vertical line separates every column, and every header has a tooltip explaining it.
   - **Sort order** – **By code** (the default) is the file's own order: WBS groups as arranged in the project,
     activities by activity code. **By date** reorders every level instead — WBS groups by their own rolled-up
     start date, activities by their own start date — applied recursively, so a date-sorted group's own sub-groups
@@ -108,8 +109,9 @@ the browser and never leaves your machine, so there is no backend.
     (so the search, status, date-range and filter-builder results, the sort order, the WBS depth and any collapsed
     groups), the Gantt bars fitted to the printed activities, and a header line saying which filters are applied.
     It also carries the other view settings:
-    - **Extra columns** – any of the optional columns switched on (% Complete, Actual Start, Actual Finish, Free
-      Float) print after TF, with shorter headings; the chart gets correspondingly narrower.
+    - **Columns** – the columns that are on print, with shorter headings, so switching Orig, Rem, Start, Finish or TF off
+      (or adding % Complete, Actual Start, Actual Finish or Free Float) changes the sheet too; the chart gets correspondingly
+      wider or narrower.
     - **Non-working time** – with the switch on, weekends and holidays are shaded on the chart, with a legend entry.
       As on screen, it is left out when the printed span is so long that a day would be under a point wide.
     - **Rows and chart ends** – the PDF prints the rows as listed, so **No groups** and the WBS level are honoured.
