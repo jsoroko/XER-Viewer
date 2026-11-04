@@ -29,7 +29,7 @@ import {
   type Timeline,
 } from "../lib/timeline";
 import { useVirtualRows } from "../lib/useVirtualRows";
-import { FIXED_COLUMNS, OPTIONAL_COLUMNS, optionalColumnValue, type FixedColumn, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
+import { FIXED_COLUMNS, OPTIONAL_COLUMNS, minTreeWidth, optionalColumnValue, type FixedColumn, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
 import type { CompareApi } from "../state/useCompare";
 import { usePersistedBoolean } from "../state/usePersistedBoolean";
 import { usePersistedStrings } from "../state/usePersistedStrings";
@@ -136,7 +136,9 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
     fixedColumns.reduce((n, c) => n + c.width, 0) +
     activeColumns.reduce((n, c) => n + c.width, 0) +
     activeCompareColumns.reduce((n, c) => n + c.width, 0);
-  const leftMin = fixedW + 220;
+  // The longest activity code decides how narrow the Activity column may be made, so a long code never runs into the next column.
+  const longestCode = useMemo(() => schedule.activities.reduce((n, a) => Math.max(n, a.code.length), 0), [schedule]);
+  const leftMin = fixedW + minTreeWidth(longestCode);
   const leftDefault = fixedW + 380;
   const [leftW, setLeftW] = useState(() => Math.max(leftMin, Math.min(leftDefault, Math.round(window.innerWidth * 0.45))));
 
@@ -1114,7 +1116,7 @@ function WbsCells({
   const { node } = row;
   return (
     <>
-      <div className="flex min-w-0 items-center gap-1.5 pr-2 font-semibold" style={{ width: treeW, paddingLeft: 8 + row.depth * 14 }}>
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2 font-semibold" style={{ width: treeW, paddingLeft: 8 + row.depth * 14 }}>
         <span className="w-3 shrink-0 text-center text-[10px] text-slate-500" aria-hidden>
           {row.expanded ? "▼" : "▶"}
         </span>
@@ -1181,7 +1183,8 @@ function TaskCells({
   const remMark = durChanged(task.remDurHrs, before?.remDurHrs);
   return (
     <>
-      <div className="flex min-w-0 items-center gap-1.5 pr-2" style={{ width: treeW, paddingLeft: 8 + depth * 14 }}>
+      {/* overflow-hidden: whatever still doesn't fit is cut off at the edge, not drawn over the next column */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2" style={{ width: treeW, paddingLeft: 8 + depth * 14 }}>
         {kind && (
           <span
             aria-label={kind === "added" ? "New" : kind === "removed" ? "Removed" : "Modified"}
@@ -1191,7 +1194,9 @@ function TaskCells({
           </span>
         )}
         <span className={`size-2 shrink-0 ${isMilestone(task) ? "rotate-45" : "rounded-full"} ${STATUS_DOT[task.status]}`} aria-hidden />
-        <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-400">{task.code}</span>
+        <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-400" title={task.code}>
+          {task.code}
+        </span>
         <span
           className={`truncate ${kind === "removed" ? "text-slate-400 line-through dark:text-slate-500" : ""}`}
           title={before && before.name !== task.name ? `${task.name}\nWas “${before.name}”` : task.name}

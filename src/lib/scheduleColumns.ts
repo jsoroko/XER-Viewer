@@ -67,3 +67,19 @@ export function optionalColumnValue(key: OptionalColumnKey, task: Activity): str
       return fmtDays(task.freeFloatHrs, task.dayHrs);
   }
 }
+
+/** The narrowest the Activity column is allowed to be, before its content has to be cut off. */
+export const MIN_TREE_W = 220;
+/** Width of one character of the activity code (a 11px monospace font), in pixels. */
+const CODE_CHAR_W = 6.7;
+/** Room for the status dot, a change marker, the indent of a deep group and a little of the name, beside the code. */
+const TREE_EXTRAS_W = 170;
+
+/**
+ * The narrowest the Activity column should be so the longest activity code is not cut off, with the name still getting a
+ * little room. Codes come in very different lengths, and a long one (24 characters is not unusual) would otherwise run
+ * into the next column. Capped, so one absurd code doesn't take the whole table.
+ */
+export function minTreeWidth(longestCode: number): number {
+  return Math.max(MIN_TREE_W, Math.round(TREE_EXTRAS_W + Math.min(longestCode, 32) * CODE_CHAR_W));
+}

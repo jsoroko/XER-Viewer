@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { OPTIONAL_COLUMNS, optionalColumnValue } from "./scheduleColumns";
+import { MIN_TREE_W, minTreeWidth, OPTIONAL_COLUMNS, optionalColumnValue } from "./scheduleColumns";
 import { buildSchedule, listProjects } from "./xer/model";
 import { parseXer } from "./xer/parse";
 
@@ -47,5 +47,21 @@ describe("optionalColumnValue", () => {
 
   test("a known activity's code is unaffected: it's read off the Activity object directly, not through this helper", () => {
     expect(findByCode("SS1010").code).toBe("SS1010");
+  });
+});
+
+describe("minTreeWidth", () => {
+  test("short codes keep the usual minimum", () => {
+    expect(minTreeWidth(0)).toBe(MIN_TREE_W);
+    expect(minTreeWidth(7)).toBe(MIN_TREE_W);
+  });
+
+  test("a long code widens it, so the code isn't cut off and the name keeps some room", () => {
+    expect(minTreeWidth(24)).toBeGreaterThan(MIN_TREE_W);
+    expect(minTreeWidth(24)).toBeGreaterThan(minTreeWidth(16));
+  });
+
+  test("but not without limit", () => {
+    expect(minTreeWidth(200)).toBe(minTreeWidth(32));
   });
 });
