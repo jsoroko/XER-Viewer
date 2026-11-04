@@ -655,7 +655,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
         {showBuilder && <FilterBuilder schedule={schedule} value={advanced} onChange={setAdvanced} />}
 
         {/* Row 2: how to show it */}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
           <div className="flex gap-1">
             <button
               type="button"
@@ -675,7 +675,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
             >
               <LuChevronsUp size={18} aria-hidden />
             </button>
-            <span aria-hidden className="mx-0.5 w-px self-stretch bg-slate-300 dark:bg-slate-700" />
+            <span aria-hidden className="mx-1 w-px self-stretch bg-slate-300 dark:bg-slate-700" />
             <button
               type="button"
               className={iconButtonClass}
@@ -767,7 +767,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
             </span>
           )}
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2">
             <LegendMenu
               state={{
                 today: todayInView,
@@ -778,8 +778,8 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 compare: compare.active ? { baseline: compare.showBaseline } : null,
               }}
             />
-            {/* Same 12px between these buttons as between the single buttons on the left; only a deliberate pair sits tighter. */}
-            <div className="flex gap-3">
+            {/* Same 8px between these buttons as between the single buttons on the left; only a deliberate pair sits tighter. */}
+            <div className="flex gap-2">
               <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 <LuMinus size={18} aria-hidden />
               </button>

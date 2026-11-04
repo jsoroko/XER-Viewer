@@ -89,7 +89,7 @@ export function WbsLevelSelect({ levels, value, onChange }: Props) {
         <div
           role="radiogroup"
           aria-label="WBS grouping depth"
-          className="absolute left-0 top-full z-50 mt-1 max-h-72 w-max overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          className="absolute left-0 top-full z-50 mt-1 max-h-72 w-max space-y-0.5 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
           <p className="px-2 pb-1 pt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Show WBS groups down to</p>
           {Array.from({ length: levels }, (_, i) => i + 1).map((n) => (
