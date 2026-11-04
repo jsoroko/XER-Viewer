@@ -142,20 +142,39 @@ export function maxWbsDepth(roots: WbsNode[]): number {
  *   by activity code). This is the default, and matches what the app has always shown.
  * - `date`: everything reordered by its own start date instead — a WBS group by its earliest rolled-up start, an
  *   activity by its own start. Applied at every level, so within a date-sorted level-1 group its level-2 sub-groups
- *   are themselves in date order, and so on all the way down.
+ *   are themselves in date order, and so on all the way down. Items that start on the same day go earliest finish
+ *   first, then by code.
  * Undated groups or activities (no dated descendants, or no start of their own) sort after everything dated.
  */
 export type ActivitySort = "code" | "date";
 
-const dateKey = (x: { start: number | null }) => x.start ?? Infinity;
-/** Ascending by start date, undated last; ties (including two undated) broken by code, for a stable order. */
-const byDate = <T extends { start: number | null; code: string }>(a: T, b: T) => dateKey(a) - dateKey(b) || naturalCompare(a.code, b.code);
+/** Midnight at the start of the (local) day, which is what the Start column shows; undated is last. */
+const dayOf = (t: number | null) => {
+  if (t === null) return Infinity;
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+/**
+ * Orders by start *day*, then finish, then code, with the undated last:
+ * - the day, not the exact time, because the table shows only the date: two items that show the same start date are
+ *   tied, whatever hour their calendars start work at;
+ * - then the earlier finish first, so a milestone or a one-day activity comes before a long one that starts the same
+ *   day (as when sorting by Start then Finish in P6 or MS Project);
+ * - then the code, so the order is always the same.
+ * The keys are worked out once per item, not on every comparison, since this runs on the whole schedule.
+ */
+function sortByDate<T extends { start: number | null; finish?: number | null; code: string }>(items: readonly T[]): T[] {
+  const keyed = items.map((item) => ({ item, day: dayOf(item.start), finish: item.finish ?? Infinity }));
+  keyed.sort((a, b) => a.day - b.day || a.finish - b.finish || naturalCompare(a.item.code, b.item.code));
+  return keyed.map((k) => k.item);
+}
 
 function sortedChildren(children: WbsNode[], sort: ActivitySort): WbsNode[] {
-  return sort === "date" ? [...children].sort(byDate) : children; // "code" order is already how the model built the tree
+  return sort === "date" ? sortByDate(children) : children; // "code" order is already how the model built the tree
 }
 function sortedActivities(activities: Activity[], sort: ActivitySort): Activity[] {
-  return sort === "date" ? [...activities].sort(byDate) : activities; // ditto
+  return sort === "date" ? sortByDate(activities) : activities; // ditto
 }
 
 /**
@@ -167,7 +186,7 @@ function flattenActivities(node: WbsNode, sort: ActivitySort): Activity[] {
   const out: Activity[] = [];
   for (const child of node.children) out.push(...flattenActivities(child, sort));
   out.push(...node.activities);
-  return sort === "date" ? out.sort(byDate) : out;
+  return sort === "date" ? sortByDate(out) : out;
 }
 
 /**
@@ -206,7 +225,7 @@ export function buildRows(
   const out: Row[] = [];
   if (wbsDepth === 0) {
     const all = sortedChildren(roots, sort).flatMap((r) => flattenActivities(r, sort));
-    for (const task of sort === "date" ? all.sort(byDate) : all) {
+    for (const task of sort === "date" ? sortByDate(all) : all) {
       if (!predicate || predicate(task)) out.push({ kind: "task", key: `t${task.id}`, task, depth: 0 });
     }
     return out;

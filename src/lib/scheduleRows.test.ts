@@ -322,10 +322,11 @@ describe("buildRows with no groups (depth 0)", () => {
     expect(rows.every((r) => r.kind === "task" && predicate(r.task))).toBe(true);
   });
 
-  test("by date, the whole list is in start order across groups", () => {
+  test("by date, the whole list is in start-date order across groups", () => {
     const rows = tasks(buildRows(schedule.roots, new Set(), null, 0, "date")) as Array<{ task: { start: number | null } }>;
-    const keys = rows.map((r) => r.task.start ?? Infinity);
-    expect(keys.every((k, i) => i === 0 || keys[i - 1]! <= k)).toBe(true);
+    // By day: within one day the order is decided by finish and code, not by the hour the activity starts.
+    const days = rows.map((r) => (r.task.start === null ? Infinity : new Date(new Date(r.task.start).toDateString()).getTime()));
+    expect(days.every((k, i) => i === 0 || days[i - 1]! <= k)).toBe(true);
   });
 });
 
@@ -480,5 +481,62 @@ describe("opening and closing everything inside one group", () => {
     expect(canCollapseWithin(new Set(["a", "b", "c"]), a)).toBe(true); // d is still open
     expect(canCollapseWithin(new Set(["d"]), d)).toBe(false);
     expect(canCollapseWithin(new Set(), f)).toBe(false); // nothing in it
+  });
+});
+
+describe("sorting by date: activities that start on the same day", () => {
+  const hour = (day: number, h: number) => new Date(2026, 10, day, h).getTime();
+  const task = (code: string, start: number | null, finish: number | null) =>
+    ({ id: code, code, name: code, start, finish, type: "task" }) as unknown as Activity;
+  const group = (activities: Activity[]) => ({ id: "g", code: "G", children: [], activities, start: null, finish: null }) as unknown as WbsNode;
+  const order = (activities: Activity[], depth: number | null = null) =>
+    buildRows([group(activities)], new Set(), null, depth, "date")
+      .filter((r) => r.kind === "task")
+      .map((r) => (r as { task: Activity }).task.code);
+
+  // The 26 November case: one activity that starts and ends that day, one that starts that day and ends in December.
+  test("a shorter activity comes before a longer one that starts the same day, whatever their codes", () => {
+    const longer = task("A100", hour(26, 8), new Date(2026, 11, 15, 17).getTime());
+    const sameDay = task("Z900", hour(26, 8), hour(26, 17));
+    expect(order([longer, sameDay])).toEqual(["Z900", "A100"]);
+  });
+
+  test("a milestone that starts and ends the same day comes before the longer activities that start with it", () => {
+    const milestone = task("M0010", hour(26, 8), hour(26, 8));
+    const long1 = task("LOE100", hour(26, 8), new Date(2027, 2, 2, 17).getTime());
+    const long2 = task("DE1000", hour(26, 8), new Date(2026, 11, 20, 17).getTime());
+    expect(order([long1, milestone, long2])).toEqual(["M0010", "DE1000", "LOE100"]);
+  });
+
+  test("the hour of the start doesn't split a day: a later start on the same date is still ranked by finish, then code", () => {
+    const early = task("B", hour(26, 6), hour(30, 17));
+    const late = task("A", hour(26, 13), hour(30, 17)); // starts later but looks the same date; same finish, so code decides
+    const shortLate = task("C", hour(26, 15), hour(26, 16));
+    expect(order([early, late, shortLate])).toEqual(["C", "A", "B"]);
+  });
+
+  test("the same start and finish are ordered by code, in natural order", () => {
+    expect(order([task("PR10", hour(26, 8), hour(27, 8)), task("PR2", hour(26, 8), hour(27, 8))])).toEqual(["PR2", "PR10"]);
+  });
+
+  test("a different start day still comes first, however short or however its code reads", () => {
+    expect(order([task("A", hour(27, 8), hour(27, 9)), task("Z", hour(26, 8), hour(30, 8))])).toEqual(["Z", "A"]);
+  });
+
+  test("undated activities are last, and among themselves ordered by finish then code", () => {
+    expect(order([task("B", null, null), task("A", null, hour(30, 8)), task("C", hour(26, 8), hour(26, 9))])).toEqual(["C", "A", "B"]);
+  });
+
+  test("the same rule applies when levels are flattened into one list", () => {
+    const longer = task("A100", hour(26, 8), new Date(2026, 11, 15, 17).getTime());
+    const sameDay = task("Z900", hour(26, 8), hour(26, 17));
+    expect(order([longer, sameDay], 0)).toEqual(["Z900", "A100"]);
+    expect(order([longer, sameDay], 1)).toEqual(["Z900", "A100"]);
+  });
+
+  test("groups with the same start day are ordered by finish, then code, like activities", () => {
+    const g = (id: string, code: string, finish: number) => ({ id, code, children: [], activities: [], start: hour(26, 8), finish }) as unknown as WbsNode;
+    const rows = buildRows([g("long", "A", hour(30, 8)), g("short", "Z", hour(27, 8))], new Set(), null, null, "date");
+    expect(rows.map((r) => (r as { node: { id: string } }).node.id)).toEqual(["short", "long"]);
   });
 });

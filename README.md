@@ -91,7 +91,10 @@ the browser and never leaves your machine, so there is no backend.
   - **Sort order** – **By code** (the default) is the file's own order: WBS groups as arranged in the project,
     activities by activity code. **By date** reorders every level instead — WBS groups by their own rolled-up
     start date, activities by their own start date — applied recursively, so a date-sorted group's own sub-groups
-    are themselves in date order, all the way down. Remembered between visits, like Non-working and Groups; unlike
+    are themselves in date order, all the way down. Items that start on the same *day* (the time of day isn't compared,
+    since the table shows only the date) go earliest finish first, then by code, so a milestone or one-day activity comes
+    before a longer one that starts with it, as when sorting by Start then Finish in P6 or MS Project; relationships
+    are not used. Remembered between visits, like Non-working and Groups; unlike
     the WBS depth control, it does not reset for a new project.
   - **WBS grouping depth** – choose how many WBS levels get their own row (**WBS level 1**, **2**, … ), similar
     to P6's "Group by WBS" level setting. Activities below the chosen level are listed directly under the deepest
