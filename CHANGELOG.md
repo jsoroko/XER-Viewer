@@ -3,6 +3,11 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.2.1 (2026-11-04)
+
+- Fix dark-mode bleed-through and fast-scroll glitches, trim duplicate code
+- Print the grouped legend and layout notes to PDF
+
 ## 26.2.0 (2026-11-04)
 
 - Use one spacing rhythm across the toolbar and menus
