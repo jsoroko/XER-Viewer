@@ -5,6 +5,7 @@ import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib
 import { COMPARE_COLUMNS, DEFAULT_COMPARE_COLUMNS, compareColumnCell, type CompareColumn, type CompareColumnKey } from "../lib/compareColumns";
 import { compareTrace } from "../lib/compareTrace";
 import { downloadBlob } from "../lib/csv";
+import { lockTextSelection } from "../lib/dragSelect";
 import { describeTrace, runTrace, type TraceMode, type TraceSpec } from "../lib/drivingPath";
 import { buildLinks } from "../lib/links";
 import { buildPdf, describeFilters, estimatePages, safeFileName } from "../lib/printPdf";
@@ -473,9 +474,14 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
 
   // ---- Left-pane resize -----------------------------------------------------
   const drag = useRef<{ x: number; w: number } | null>(null);
+  const unlockSelection = useRef<(() => void) | null>(null);
+  // If the panel goes away in the middle of a drag, text selection must not stay switched off.
+  useEffect(() => () => unlockSelection.current?.(), []);
   const onResizeDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.preventDefault(); // otherwise the press starts a text selection that the drag then extends
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { x: e.clientX, w: leftW };
+    unlockSelection.current ??= lockTextSelection();
   };
   const onResizeMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
@@ -484,6 +490,8 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   };
   const onResizeUp = () => {
     drag.current = null;
+    unlockSelection.current?.();
+    unlockSelection.current = null;
   };
 
   const printToPdf = async () => {
@@ -856,6 +864,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 onPointerDown={onResizeDown}
                 onPointerMove={onResizeMove}
                 onPointerUp={onResizeUp}
+                onPointerCancel={onResizeUp}
                 className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-accent-500/40"
               />
             </div>

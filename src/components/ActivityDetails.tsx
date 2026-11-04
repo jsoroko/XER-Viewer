@@ -1,4 +1,5 @@
-import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { lockTextSelection } from "../lib/dragSelect";
 import { fmtDateTime, fmtDays, fmtMoney, fmtNumber } from "../lib/format";
 import { holidayCount, summarizeWeek, workingDaysBetween } from "../lib/xer/calendar";
 import { isMilestone, wbsPath, type Activity, type Relationship, type Schedule } from "../lib/xer/model";
@@ -198,10 +199,15 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
   // Remembered across visits and across activities, like the table's own width.
   const [height, setHeight] = usePersistedNumber("xerview-detail-height", DEFAULT_DETAIL_H);
   const drag = useRef<{ y: number; h: number } | null>(null);
+  const unlockSelection = useRef<(() => void) | null>(null);
+  // If the panel goes away in the middle of a drag, text selection must not stay switched off.
+  useEffect(() => () => unlockSelection.current?.(), []);
 
   const onResizeDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.preventDefault(); // otherwise the press starts a text selection that the drag then extends
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { y: e.clientY, h: height };
+    unlockSelection.current ??= lockTextSelection();
   };
   const onResizeMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
@@ -211,6 +217,8 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
   };
   const onResizeUp = () => {
     drag.current = null;
+    unlockSelection.current?.();
+    unlockSelection.current = null;
   };
   const preds = schedule.predecessors.get(a.id) ?? [];
   const succs = schedule.successors.get(a.id) ?? [];
@@ -236,6 +244,7 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
         onPointerDown={onResizeDown}
         onPointerMove={onResizeMove}
         onPointerUp={onResizeUp}
+        onPointerCancel={onResizeUp}
         className="absolute inset-x-0 top-0 h-1.5 -translate-y-1/2 cursor-row-resize touch-none hover:bg-accent-500/40"
       />
       <div className="flex items-center gap-1 border-b border-slate-200 px-3 dark:border-slate-800">
