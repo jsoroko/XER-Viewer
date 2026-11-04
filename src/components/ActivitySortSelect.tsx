@@ -63,7 +63,7 @@ export function ActivitySortSelect({ value, onChange }: Props) {
         <div
           role="radiogroup"
           aria-label="Sort order"
-          className="absolute left-0 top-full z-50 mt-1 w-56 space-y-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          className="absolute left-0 top-full z-50 mt-1 w-max min-w-full space-y-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
           {OPTIONS.map((o) => (
             <button

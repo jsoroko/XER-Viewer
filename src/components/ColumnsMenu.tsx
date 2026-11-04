@@ -63,9 +63,10 @@ export function ColumnsMenu({ hiddenFixed, onFixedToggle, enabled, onToggle, com
         <div
           role="dialog"
           aria-label="Columns"
-          className="absolute left-0 top-full z-50 mt-1 max-h-[75vh] w-52 space-y-1.5 overflow-auto rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          className="absolute left-0 top-full z-50 mt-1 max-h-[75vh] w-max max-w-[calc(100vw-1rem)] space-y-1.5 overflow-auto rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">The activity column is always shown.</p>
+          {/* w-0 min-w-full: the note wraps to the menu's width instead of making the menu as wide as the sentence */}
+          <p className="w-0 min-w-full text-[11px] text-slate-500 dark:text-slate-400">The activity column is always shown.</p>
           {FIXED_COLUMNS.map((c) => (
             <Switch
               key={c.key}
