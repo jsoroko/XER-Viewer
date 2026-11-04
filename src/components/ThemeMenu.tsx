@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { PALETTES, type Mode, type PaletteId } from "../lib/themes";
 import { LuPalette } from "react-icons/lu";
 import { iconButtonClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 const MODES: Array<{ id: Mode; label: string; glyph: string }> = [
   { id: "light", label: "Light", glyph: "☀" },
@@ -26,19 +27,7 @@ export function ThemeMenu({ palette, mode, onPalette, onMode }: Props) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   return (
     <div ref={box} className="relative">

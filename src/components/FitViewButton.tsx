@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LuMaximize } from "react-icons/lu";
 import { iconButtonClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 interface Props {
   /** A date range is selected, so there is something other than the whole project to fit to. */
@@ -32,19 +33,9 @@ export function FitViewButton({ hasRange, hasRows, hasActivities, fitted, onFitP
   const menu = hasRange || hasRows || hasActivities;
   const shown = open && menu; // clearing the dates or the filter closes the menu
 
+  useDismiss(shown, box, () => setOpen(false));
   useEffect(() => {
-    if (!shown) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    box.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
+    if (shown) box.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
   }, [shown]);
 
   const choose = (action: () => void) => {

@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 interface Options {
   count: number;
@@ -10,10 +11,16 @@ interface Options {
  * Fixed-row-height windowing for a scroll container. Attach `ref` to the
  * scrolling element; render rows `start` to `end` at `top = index * rowHeight`
  * inside a box that is `totalHeight` tall.
+ *
+ * The browser scrolls without waiting for the page, so a fast scroll can get ahead of the rows drawn and show blank
+ * space. Two things keep that from showing: rows are drawn a good way beyond each edge (`overscan`), and a scroll that
+ * moves to different rows renders them before the browser paints that frame (`flushSync`) instead of a moment after.
  */
-export function useVirtualRows({ count, rowHeight, overscan = 6 }: Options) {
+export function useVirtualRows({ count, rowHeight, overscan = 20 }: Options) {
   const ref = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ firstRow: 0, height: 0, width: 0 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -27,11 +34,15 @@ export function useVirtualRows({ count, rowHeight, overscan = 6 }: Options) {
       );
     };
     update();
-    el.addEventListener("scroll", update, { passive: true });
+    const onScroll = () => {
+      // Only a change of row needs the page redrawn; scrolling within a row (or sideways) changes nothing here.
+      if (Math.floor(el.scrollTop / rowHeight) !== viewRef.current.firstRow) flushSync(update);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => {
-      el.removeEventListener("scroll", update);
+      el.removeEventListener("scroll", onScroll);
       ro.disconnect();
     };
   }, [rowHeight]);

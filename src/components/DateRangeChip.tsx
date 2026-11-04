@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { LuCalendarDays } from "react-icons/lu";
 import { DATE_MODE_LABEL, describeDateRange, type DateMode } from "../lib/scheduleRows";
 import { buttonClass, iconToggleClass, inputClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 /** Matches the panel's w-72 (18rem). */
 const PANEL_WIDTH = 288;
@@ -28,19 +29,7 @@ export function DateRangeChip({ from, to, mode, invalid, onFrom, onTo, onMode, o
   const isSet = Boolean(from || to);
   const summary = invalid ? "From is after To" : describeDateRange(from, to);
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   const fieldClass = `${inputClass} w-full ${invalid ? "border-red-500 focus:border-red-500 focus:ring-red-500/30" : ""}`;
 

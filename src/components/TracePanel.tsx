@@ -85,7 +85,6 @@ export function TracePanel({
       : null;
   const chips = (["all", "joined", "dropped", "both"] as const).filter((f) => f !== "dropped" || showBaselinePath);
   const wasCount = compare ? compare.counts.both + compare.counts.dropped : 0;
-  const nowCount = compare ? compare.counts.both + compare.counts.joined : 0;
 
   return (
     <section

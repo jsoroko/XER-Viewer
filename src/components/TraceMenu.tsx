@@ -5,6 +5,7 @@ import type { TraceMode } from "../lib/drivingPath";
 import type { Activity, Schedule } from "../lib/xer/model";
 import { usePersistedStrings } from "../state/usePersistedStrings";
 import { iconToggleClass, inputClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 interface Props {
   schedule: Schedule;
@@ -76,19 +77,7 @@ export function TraceMenu({ schedule, selected, active, onTrace }: Props) {
   const matches = useMemo(() => findActivities(inProject, text), [inProject, text]);
   const usingId = source === "id" || !selected;
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   useEffect(() => {
     if (open && usingId) input.current?.focus();

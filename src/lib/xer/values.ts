@@ -1,11 +1,21 @@
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/;
 
-/** Parses "YYYY-MM-DD HH:mm" (local time, as P6 writes it) to epoch ms. */
+/**
+ * Parses "YYYY-MM-DD HH:mm" (local time, as P6 writes it) to epoch ms. A schedule has thousands of activities on each
+ * date, so results are remembered by their text: building a Date (which has to resolve the local time zone) is the
+ * expensive part. Bounded, so a file of unusual dates can't grow it without limit.
+ */
+const dateCache = new Map<string, number | null>();
+const DATE_CACHE_MAX = 50_000;
 export function parseDate(s: string): number | null {
   if (!s) return null;
+  const hit = dateCache.get(s);
+  if (hit !== undefined) return hit;
   const m = DATE_RE.exec(s);
-  if (!m) return null;
-  return new Date(+m[1]!, +m[2]! - 1, +m[3]!, +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0)).getTime();
+  const ms = m ? new Date(+m[1]!, +m[2]! - 1, +m[3]!, +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0)).getTime() : null;
+  if (dateCache.size >= DATE_CACHE_MAX) dateCache.clear();
+  dateCache.set(s, ms);
+  return ms;
 }
 
 export function parseNumber(s: string): number | null {

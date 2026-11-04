@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { LuInfo } from "react-icons/lu";
 import { buildLegend, type LegendKey, type LegendState } from "../lib/legend";
 import { CHANGE_BAR, CHANGE_SOLID } from "./compareStyle";
 import { iconToggleClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 /** How each entry looks, as the classes of a small swatch drawn like the thing on the chart. */
 const SWATCH: Record<LegendKey, string> = {
@@ -58,19 +59,7 @@ export function LegendMenu({ state }: { state: LegendState }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   return (
     <div ref={box} className="relative">

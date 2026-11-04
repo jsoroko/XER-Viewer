@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { COMPARE_COLUMNS, type CompareColumnKey } from "../lib/compareColumns";
 import { FIXED_COLUMNS, OPTIONAL_COLUMNS, type FixedColumnKey, type OptionalColumnKey } from "../lib/scheduleColumns";
 import { LuColumns3 } from "react-icons/lu";
 import { Switch, iconButtonClass, iconToggleClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 interface Props {
   /** Orig, Rem, Start, Finish and TF are on unless listed here. */
@@ -31,19 +32,7 @@ export function ColumnsMenu({ hiddenFixed, onFixedToggle, enabled, onToggle, com
   const changed = hiddenFixed.length + enabled.length + (compare?.enabled.length ?? 0);
   const customised = hiddenFixed.length > 0 || enabled.length > 0;
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   return (
     <div ref={box} className="relative">

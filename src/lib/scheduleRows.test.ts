@@ -434,7 +434,7 @@ describe("opening and closing everything inside one group", () => {
   const f = node("f");
   const a = node("a", [b, c, f]);
   const e = node("e", [], [a1]);
-  const root = node("root", [a, e]);
+  node("root", [a, e]);
   const all = new Set(["root", "a", "b", "c", "d", "e", "f"]);
 
   test("groupsBelow lists every group under one, at any depth, and not the group itself", () => {

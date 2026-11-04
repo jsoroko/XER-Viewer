@@ -86,14 +86,6 @@ export const inputClass =
   "focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30 " +
   "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
 
-/** A button that stays visibly "on" while pressed. */
-export const toggleClass = (on: boolean) =>
-  "inline-flex h-8 items-center justify-center rounded-md border px-2.5 text-sm font-medium " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 disabled:opacity-40 " +
-  (on
-    ? "border-accent-500 bg-accent-50 text-accent-700 hover:bg-accent-100 dark:border-accent-500 dark:bg-accent-950 dark:text-accent-300 dark:hover:bg-accent-900"
-    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800");
-
 export const buttonClass =
   "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-sm " +
   "font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white " +

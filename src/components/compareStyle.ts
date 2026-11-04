@@ -13,6 +13,17 @@ export const CHANGE_TINT: Record<MarkedKind, string> = {
   modified: "bg-amber-50 dark:bg-amber-950/40",
 };
 
+/**
+ * The same tints, but opaque, for the table on the left: it is sticky, so the chart scrolls underneath it, and a see-through
+ * background (the dark tints above are 40%) lets the bars and baselines show through the columns. Each is the dark tint
+ * mixed onto the dark page colour; light mode is already opaque.
+ */
+export const CHANGE_TINT_SOLID: Record<MarkedKind, string> = {
+  added: "bg-green-50 dark:bg-[color-mix(in_oklab,var(--color-green-950)_40%,var(--color-slate-950))]",
+  removed: "bg-red-50 dark:bg-[color-mix(in_oklab,var(--color-red-950)_40%,var(--color-slate-950))]",
+  modified: "bg-amber-50 dark:bg-[color-mix(in_oklab,var(--color-amber-950)_40%,var(--color-slate-950))]",
+};
+
 /** The solid square at the start of the row, and the same colour for a legend swatch. */
 export const CHANGE_SOLID: Record<MarkedKind, string> = {
   added: "bg-green-600 text-white",

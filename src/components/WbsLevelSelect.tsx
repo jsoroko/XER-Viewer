@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { LuListTree } from "react-icons/lu";
 import { iconToggleClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 interface Props {
   /** How many levels this file's WBS actually has; the caller only renders this when it's more than 1. */
@@ -41,19 +42,7 @@ export function WbsLevelSelect({ levels, value, onChange }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const custom = value < levels;
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   const choose = (n: number) => {
     onChange(n);

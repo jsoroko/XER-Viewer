@@ -5,6 +5,7 @@ import { fmtBytes, fmtDate, fmtInt } from "../lib/format";
 import type { RecentFile } from "../state/fileStore";
 import type { CompareApi, CompareSide } from "../state/useCompare";
 import { Switch, badgeClass, buttonClass, iconToggleClass } from "./ui";
+import { useDismiss } from "./useDismiss";
 
 /** Panel width, so it can open towards the left when the button is too close to the window's right edge. */
 const PANEL_WIDTH = 360;
@@ -159,19 +160,7 @@ export function CompareMenu({ compare }: { compare: CompareApi }) {
   const box = useRef<HTMLDivElement>(null);
   const { active, baseline, current, comparison, file, addedSide } = compare;
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, box, () => setOpen(false));
 
   // A file that has just been added closes the "replace" area.
   useEffect(() => setReplacing(false), [file]);

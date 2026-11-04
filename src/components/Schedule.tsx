@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib/compare";
@@ -34,7 +34,7 @@ import {
   type Timeline,
 } from "../lib/timeline";
 import { useVirtualRows } from "../lib/useVirtualRows";
-import { FIXED_COLUMNS, OPTIONAL_COLUMNS, minTreeWidth, optionalColumnValue, type FixedColumn, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
+import { FIXED_COLUMNS, OPTIONAL_COLUMNS, minTreeWidth, optionalColumnValue, type FixedColumn, type OptionalColumn } from "../lib/scheduleColumns";
 import type { CompareApi } from "../state/useCompare";
 import { usePersistedBoolean } from "../state/usePersistedBoolean";
 import { usePersistedStrings } from "../state/usePersistedStrings";
@@ -45,7 +45,7 @@ import { ActivitySortSelect } from "./ActivitySortSelect";
 import { ColumnsMenu } from "./ColumnsMenu";
 import { CompareBar } from "./CompareBar";
 import { CompareMenu } from "./CompareMenu";
-import { CHANGE_BAR, CHANGE_MARK, CHANGE_SOLID, CHANGE_TEXT, CHANGE_TINT } from "./compareStyle";
+import { CHANGE_BAR, CHANGE_MARK, CHANGE_SOLID, CHANGE_TEXT, CHANGE_TINT, CHANGE_TINT_SOLID } from "./compareStyle";
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
 import { FitViewButton } from "./FitViewButton";
@@ -86,7 +86,18 @@ interface Props {
   onSelect: (id: string | null) => void;
 }
 
-export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
+/**
+ * A function that keeps the same identity however often the component re-renders, and always calls the latest `fn`. The
+ * rows are memoised on their props, so the handlers handed to them must not change on every render or nothing is saved.
+ */
+function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const latest = useRef(fn);
+  latest.current = fn;
+  return useCallback((...args: A) => latest.current(...args), []);
+}
+
+export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp }: Props) {
+  const onSelect = useStable(onSelectProp);
   const [normalCollapsed, setNormalCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   // Groups collapsed while a filter is active, tagged with the filter they belong to (see below).
   const [filterCollapse, setFilterCollapse] = useState<{ for: unknown; ids: ReadonlySet<string> }>({
@@ -368,22 +379,31 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   );
 
   const group = groupId ? (schedule.wbs.get(groupId) ?? null) : null;
-  const selectGroup = (id: string) => {
+  const selectGroup = useStable((id: string) => {
     setGroupId(id);
     onSelect(null); // the details panel is for activities
-  };
-  const expandGroup = (id: string) => {
+  });
+  const expandGroup = useStable((id: string) => {
     const node = schedule.wbs.get(id);
     if (!node) return;
     selectGroup(id);
     updateCollapsed((prev) => expandWithin(prev, node));
-  };
-  const collapseGroup = (id: string) => {
+  });
+  const collapseGroup = useStable((id: string) => {
     const node = schedule.wbs.get(id);
     if (!node) return;
     selectGroup(id);
     updateCollapsed((prev) => collapseWithin(prev, node));
-  };
+  });
+  // What each group's button does depends on everything inside it, so it is worked out once per group for a given set of
+  // closed groups, not on every render of every row on screen (which, for a big project, walked whole sub-trees).
+  const groupActions = useMemo(() => {
+    const cache = new Map<string, GroupAction | null>();
+    return (node: WbsNode) => {
+      if (!cache.has(node.id)) cache.set(node.id, groupAction(collapsed, node));
+      return cache.get(node.id)!;
+    };
+  }, [collapsed]);
 
   const scrollToDataDate = () => {
     const el = virtual.ref.current;
@@ -513,6 +533,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
           columns: enabledColumns,
           hiddenColumns: hiddenFixed,
           compareColumns: enabledCompareColumns,
+          view: { wbsLevel: wbsDepth, levels: wbsLevels, sort: sortMode },
           shadeNonWorking: showNonWorking && pattern !== null,
           compare:
             compare.active && compare.comparison && compare.baseline && compare.current
@@ -984,7 +1005,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
                 onSelectGroup={selectGroup}
                 onExpandGroup={expandGroup}
                 onCollapseGroup={collapseGroup}
-                groupAction={row.kind === "wbs" ? groupAction(collapsed, row.node) : null}
+                groupAction={row.kind === "wbs" ? groupActions(row.node) : null}
               />
             ))}
           </div>
@@ -1031,7 +1052,8 @@ function describeCompare(compare: CompareApi): string {
   return `Comparing ${side(compare.baseline!)} with ${side(compare.current!)}${limited ? `: showing ${shown.join(", ")}${compare.showUnchanged && shown.length === 3 ? "" : " only"}` : ""}`;
 }
 
-function TimeScale({ ticks, width }: { ticks: ReturnType<typeof buildTicks>; width: number }) {
+/** Memoised: it is thousands of small elements that only change with the zoom, and Schedule re-renders as the rows scroll. */
+const TimeScale = memo(function TimeScale({ ticks, width }: { ticks: ReturnType<typeof buildTicks>; width: number }) {
   const tier = (list: typeof ticks.top, top: number) =>
     list.map((t, i) => (
       <div
@@ -1049,7 +1071,7 @@ function TimeScale({ ticks, width }: { ticks: ReturnType<typeof buildTicks>; wid
       {tier(ticks.bottom, 22)}
     </div>
   );
-}
+});
 
 interface RowProps {
   row: Row;
@@ -1090,7 +1112,7 @@ function groupAction(collapsed: ReadonlySet<string>, node: WbsNode): GroupAction
   return canExpandWithin(collapsed, node) ? "expand" : canCollapseWithin(collapsed, node) ? "collapse" : null;
 }
 
-function ScheduleRow({
+const ScheduleRow = memo(function ScheduleRow({
   row,
   top,
   leftW,
@@ -1116,11 +1138,12 @@ function ScheduleRow({
   const onPath = trace === "on" && !selected;
   const kind = change && change.kind !== "unchanged" ? change.kind : null;
   const tint = kind ? CHANGE_TINT[kind] : "";
+  const solidTint = kind ? CHANGE_TINT_SOLID[kind] : "";
   // While comparing, what changed matters more than being on the path, so its colour is kept and the path is outlined.
   const bg = selected
     ? "bg-accent-50 dark:bg-accent-950"
-    : tint
-      ? tint
+    : solidTint
+      ? solidTint
       : onPath
         ? "bg-cyan-50 dark:bg-cyan-950"
         : isWbs
@@ -1165,9 +1188,9 @@ function ScheduleRow({
       </div>
     </div>
   );
-}
+});
 
-const numCell = "shrink-0 truncate px-1 tabular-nums";
+const numCell ="shrink-0 truncate px-1 tabular-nums";
 
 function WbsCells({
   row,
