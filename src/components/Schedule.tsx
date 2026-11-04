@@ -1179,7 +1179,6 @@ function ScheduleRow({
           <WbsCells
             row={row}
             treeW={treeW}
-            selected={selected}
             fixed={fixedColumns}
             columns={columns}
             compareColumns={compareColumns}
@@ -1208,7 +1207,6 @@ const numCell = "shrink-0 truncate px-1 tabular-nums";
 function WbsCells({
   row,
   treeW,
-  selected,
   fixed,
   columns,
   compareColumns,
@@ -1219,7 +1217,6 @@ function WbsCells({
 }: {
   row: Extract<Row, { kind: "wbs" }>;
   treeW: number;
-  selected: boolean;
   fixed: FixedColumn[];
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
@@ -1254,11 +1251,11 @@ function WbsCells({
         >
           {fmtInt(row.matches ?? node.activityCount)}
         </span>
-        {/* One button, since it can only be one or the other: open everything inside this group if any of it is closed, else close it. On hover, and while the group is selected. */}
+        {/* One button, since it can only be one or the other: open everything inside this group if any of it is closed, else close it. Shown only while the pointer is over the row. */}
         {action && (
           <button
             type="button"
-            className={`ml-auto size-5 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${selected ? "flex" : "hidden group-hover:flex"}`}
+            className={`ml-auto size-5 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 hidden group-hover:flex`}
             aria-label={action === "expand" ? `Expand everything inside ${node.name}` : `Collapse ${node.name} and everything inside it`}
             title={action === "expand" ? "Expand everything inside this group" : "Collapse this group and everything inside it"}
             onClick={(e) => {
