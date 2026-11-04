@@ -125,6 +125,15 @@ export function decodeXer(buffer: ArrayBuffer): string {
   }
 }
 
+/** Decodes and parses a whole file, and checks that it has something to show. */
+export function readXerBuffer(buffer: ArrayBuffer): XerFile {
+  const xer = parseXer(decodeXer(buffer));
+  if (!xer.tables.has("TASK") && !xer.tables.has("PROJECT")) {
+    throw new XerParseError("The file has an XER header but contains no PROJECT or TASK data.");
+  }
+  return xer;
+}
+
 /** Column-name based accessor over a table's positional rows. */
 export interface TableReader {
   rows: string[][];

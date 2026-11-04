@@ -4,6 +4,7 @@ import { Schedule } from "./components/Schedule";
 import { TablesView } from "./components/TablesView";
 import { TopBar, type Tab } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
+import { useCompare } from "./state/useCompare";
 import { buildSchedule, listProjects } from "./lib/xer/model";
 import { useTheme } from "./state/useTheme";
 import { useXerFile } from "./state/useXerFile";
@@ -64,6 +65,12 @@ function Viewer({
   const [tableRequest, setTableRequest] = useState<{ name: string; nonce: number } | null>(null);
 
   const schedule = useMemo(() => (projectId ? buildSchedule(xer, projectId) : null), [xer, projectId]);
+  // Comparing this programme with a second file. While that is on, the schedule shows the differences.
+  const compare = useCompare(schedule, state.name, state.size);
+  const shown = compare.matched?.schedule ?? schedule;
+
+  // The selected activity belongs to the schedule that was showing; a different one starts with nothing selected.
+  useEffect(() => setSelectedId(null), [shown]);
 
   const changeProject = useCallback((id: string) => {
     setProjectId(id);
@@ -109,7 +116,7 @@ function Viewer({
         </div>
         <div className="h-full" hidden={tab !== "schedule"}>
           {schedule ? (
-            <Schedule schedule={schedule} selectedId={selectedId} onSelect={setSelectedId} />
+            <Schedule schedule={shown ?? schedule} compare={compare} selectedId={selectedId} onSelect={setSelectedId} />
           ) : (
             <NoProject onOpenTable={openTable} />
           )}
@@ -133,13 +140,18 @@ function NoProject({ onOpenTable }: { onOpenTable: (name: string) => void }) {
   );
 }
 
-/** Window-wide drag & drop; returns true while a file is being dragged over the page. */
+/**
+ * Window-wide drag & drop; returns true while a file is being dragged over the page to open it. A drop area that
+ * marks itself `data-compare-drop` (the Compare tools menu) takes its own files, so they are not opened here.
+ */
 function useFileDrop(onFile: (file: File) => void) {
   const [dragging, setDragging] = useState(false);
+  const [overOwnZone, setOverOwnZone] = useState(false);
 
   useEffect(() => {
     let depth = 0;
     const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+    const inOwnZone = (e: DragEvent) => e.target instanceof Element && e.target.closest("[data-compare-drop]") !== null;
     const enter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       depth++;
@@ -151,13 +163,17 @@ function useFileDrop(onFile: (file: File) => void) {
       if (depth === 0) setDragging(false);
     };
     const over = (e: DragEvent) => {
-      if (hasFiles(e)) e.preventDefault();
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setOverOwnZone(inOwnZone(e));
     };
     const drop = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
       depth = 0;
       setDragging(false);
+      setOverOwnZone(false);
+      if (inOwnZone(e)) return; // the zone has taken the file
       const file = e.dataTransfer?.files[0];
       if (file) onFile(file);
     };
@@ -173,5 +189,5 @@ function useFileDrop(onFile: (file: File) => void) {
     };
   }, [onFile]);
 
-  return dragging;
+  return dragging && !overOwnZone;
 }

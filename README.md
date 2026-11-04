@@ -35,6 +35,21 @@ the browser and never leaves your machine, so there is no backend.
     left out. Relationships to undated activities can't be measured and break the chain. Unlike P6's own Longest
     Path / Multiple Float Paths, which are worked out for one end activity when the schedule is calculated, this
     works for any activity in any exported file.
+  - **Compare two programmes** – click the **Compare tools** icon (two arrows). Add the second file there: drop an `.xer`
+    on the dotted area, choose one, or pick one of the files opened lately (the last five are kept in this browser).
+    Nothing is uploaded. The file with the earlier data date is the **baseline** and the later one the **current**
+    programme; **Swap order** reverses that. Activities are matched by **Activity ID** (not the database id, which changes
+    when a file is exported again), so a revision exported from another database still lines up. A file with several
+    projects is compared on the one with the same name as the open project, and the menu lets you pick another.
+    Each activity is **new** (green `+`), **removed** (red `−`, struck through, drawn as a dashed outline at its old
+    place, in the group it came from), **modified** (amber `~`) or unchanged (grey). Changed dates are amber with the old
+    value in the tooltip, and a modified bar shows how far it moved (`+14d`) with a thin baseline bar under it. Select an
+    activity to see in the details panel exactly what differs: dates, durations, predecessors added or removed and lag
+    changes, status and percent, constraints, renames. A strip under the toolbar names the two files and has a chip per kind
+    of change, with its count, that switches that kind on or off (all on shows everything; unchanged activities
+    show only then). **Compare by** in the menu chooses what counts as a difference (dates, duration, logic, progress,
+    constraints, names), and you can hide the baseline bars or the unchanged activities. The PDF prints the same
+    colours, markers, baseline bars and legend, with the two files named in its header.
   - **Date range filter** – the **Dates** (calendar) icon (hover for the current range) opens From/To (either can be left open)
     with three modes: active in range, starting in range, or finishing in range. The range is shaded on the chart and
     scrolled into view. **Fit View** (the corners icon beside zoom) fits the whole project; once a range is set, or a search, filter or trace leaves
@@ -156,9 +171,10 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/drivingPath.ts`, `activityLookup.ts`, `traceCsv.ts` | Driving-logic tracing (backward / forward / combined), its step list and CSV |
 | `src/lib/version.ts`, `appVersion.ts`, `scripts/release.ts` | Version numbering, the version and build date shown on the start screen, the release command |
 | `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
-| `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path |
-| `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file; load / restore / close flow |
-| `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, TablesView |
+| `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path, compared programmes |
+| `src/lib/compare.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; loading the second file |
+| `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file and the five most recent; load / restore / close flow |
+| `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, CompareMenu / CompareBar, TablesView |
 | `scripts/generate-sample.ts` | Regenerates `src/sample/sample.xer` (`bun run sample`) |
 
 ## Notes
@@ -170,5 +186,5 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
   at or below the project's critical threshold (or is on the driving path when the project uses that setting).
 - Dates are taken as P6 exported them; the viewer never reschedules. Calendars are read for display only, and a
   calendar whose `clndr_data` can't be parsed simply isn't shaded (derived calendars inherit their base's pattern).
-- A backend (Elysia + PostgreSQL + React Query) would only be needed for saved projects, sharing, or comparing
-  versions across uploads. None of that is required to view a file.
+- A backend (Elysia + PostgreSQL + React Query) would only be needed for saved projects or sharing. None of that is
+  required to view or compare files.

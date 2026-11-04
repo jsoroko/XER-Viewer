@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 import { FIELDS, OPERATORS, type AdvancedFilter } from "./advancedFilter";
+import { fmtShift, shiftDays, type ActivityChange } from "./compare";
 import { fmtDate, fmtDateTime, fmtDays } from "./format";
 import {
   ACTIVITY_FILTER_LABEL,
@@ -155,7 +156,21 @@ const C = {
   nonWorking: [231, 235, 242],
   path: [8, 145, 178],
   pathRow: [224, 247, 250],
+  // Comparing two programmes: a bar's colour by kind of change, the row tint behind it, and the changed-value text.
+  added: [34, 197, 94],
+  modified: [245, 158, 11],
+  unchanged: [148, 163, 184],
+  removed: [220, 38, 38],
+  baseline: [100, 116, 139],
+  addedRow: [220, 252, 231],
+  removedRow: [254, 226, 226],
+  modifiedRow: [254, 243, 199],
+  modifiedText: [180, 83, 9],
 } as const satisfies Record<string, RGB>;
+
+const KIND_FILL = { added: C.added, removed: C.removed, modified: C.modified } as const;
+const KIND_ROW = { added: C.addedRow, removed: C.removedRow, modified: C.modifiedRow } as const;
+const KIND_MARK = { added: "+", removed: "-", modified: "~" } as const;
 
 const fill = (d: jsPDF, c: RGB) => d.setFillColor(c[0], c[1], c[2]);
 const stroke = (d: jsPDF, c: RGB) => d.setDrawColor(c[0], c[1], c[2]);
@@ -203,6 +218,11 @@ export interface PrintInput {
    * `label` goes in the header, e.g. "Backward trace from A1000".
    */
   trace?: { label: string; ids: ReadonlySet<string>; links: readonly Relationship[] } | null;
+  /**
+   * Two programmes being compared (see compare.ts): rows are tinted, and bars coloured, by what changed since the
+   * baseline. `label` goes in the header, e.g. "Comparing Rev A (12-Jan-26) with Rev B (02-Mar-26)".
+   */
+  compare?: { label: string; changes: ReadonlyMap<string, ActivityChange>; showBaseline: boolean } | null;
 }
 
 export interface PdfOptions {
@@ -233,6 +253,8 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   const described = describeFilters(filters);
   // "Path only" already names the trace; otherwise say it is being shown, so a faded sheet isn't a mystery.
   if (trace && !filters.path) described.push(`Traced path: ${trace.label}`);
+  const compare = input.compare ?? null;
+  if (compare) described.unshift(compare.label);
   const filterText = pdfText(described.length ? described.join("   |   ") : "No filters applied");
   const filterLines = (doc.splitTextToSize(filterText, PAGE_W - 2 * MARGIN - 260) as string[]).slice(0, MAX_FILTER_LINES);
   const headH = headerHeight(filterLines.length);
@@ -240,7 +262,16 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   const pages = Math.max(1, Math.ceil(rows.length / perPage));
 
   // Time axis, fitted to the activities actually printed
-  const span = printedSpan(rows) ?? schedule.range;
+  const printed = printedSpan(rows) ?? schedule.range;
+  const span = printed && { ...printed };
+  // Where a modified activity used to be is drawn too, so the axis has to reach it.
+  if (span && compare?.showBaseline) {
+    for (const r of rows) {
+      const before = r.kind === "task" ? compare.changes.get(r.task.id)?.before : null;
+      if (before?.start != null && before.start < span.start) span.start = before.start;
+      if (before?.finish != null && before.finish > span.finish) span.finish = before.finish;
+    }
+  }
   const padded = paddedRange(span);
   const extra = OPTIONAL_COLUMNS.filter((c) => input.columns?.includes(c.key)).map((c) => ({ ...c, ...PDF_COLUMNS[c.key] }));
   const tableW = FIXED_TABLE_W + extra.reduce((n, c) => n + c.w, 0);
@@ -351,8 +382,13 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
       const top = bodyTop + i * ROW_H;
       const mid = top + ROW_H / 2;
       const onPath = trace !== null && row.kind === "task" && trace.ids.has(row.task.id);
+      const change = compare && row.kind === "task" ? (compare.changes.get(row.task.id) ?? null) : null;
+      const kind = change && change.kind !== "unchanged" ? change.kind : null;
       if (row.kind === "wbs") {
         fill(doc, C.band);
+        doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, ROW_H, "F");
+      } else if (kind) {
+        fill(doc, KIND_ROW[kind]);
         doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, ROW_H, "F");
       } else if (onPath) {
         fill(doc, C.pathRow);
@@ -381,23 +417,45 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
         drawSummaryBar(doc, row.node.start, row.node.finish, mid, ganttX, ganttW, tl.x);
       } else {
         const a = row.task;
+        // A small square with + (new), - (removed) or ~ (modified) in front of the code, while comparing.
+        let at = indent;
+        if (compare) {
+          if (kind) {
+            fill(doc, KIND_FILL[kind]);
+            doc.rect(indent, mid - 3.5, 7, 7, "F");
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(7);
+            ink(doc, kind === "modified" ? C.text : ([255, 255, 255] as const));
+            doc.text(KIND_MARK[kind], indent + 3.5, mid + (kind === "modified" ? 0.3 : 0), { align: "center", baseline: "middle" });
+          }
+          at += 10;
+        }
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         ink(doc, C.muted);
         const code = fit(doc, pdfText(a.code), 92);
         const codeW = doc.getTextWidth(code); // measured at the code's own size, before the name's size is set
-        doc.text(code, indent, mid, { baseline: "middle" });
+        doc.text(code, at, mid, { baseline: "middle" });
         doc.setFontSize(7.5);
-        ink(doc, C.text);
-        const nameX = indent + codeW + 5;
+        ink(doc, kind === "removed" ? C.muted : C.text);
+        const nameX = at + codeW + 5;
         doc.text(fit(doc, pdfText(a.name), cellRight - nameX), nameX, mid, { baseline: "middle" });
+        if (kind === "removed") {
+          stroke(doc, C.muted);
+          doc.setLineWidth(0.4);
+          doc.line(nameX, mid, nameX + Math.min(doc.getTextWidth(pdfText(a.name)), cellRight - nameX), mid);
+        }
 
         ink(doc, C.text);
         let cx = MARGIN + TREE_W;
         doc.text(fmtDays(a.origDurHrs, a.dayHrs), cx + COL_W.orig - 4, mid, { align: "right", baseline: "middle" });
         cx += COL_W.orig;
         doc.text(fmtDays(a.remDurHrs, a.dayHrs), cx + COL_W.rem - 4, mid, { align: "right", baseline: "middle" });
-        drawDates(doc, a.start, a.finish, mid);
+        const was = change?.kind === "modified" ? change.before : null;
+        drawDates(doc, a.start, a.finish, mid, {
+          start: was && was.start !== a.start ? C.modifiedText : null,
+          finish: was && was.finish !== a.finish ? C.modifiedText : null,
+        });
         if (a.status !== "completed") {
           const tf = fmtDays(a.totalFloatHrs, a.dayHrs);
           if (a.critical) ink(doc, C.red);
@@ -409,7 +467,7 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
           doc.text(pdfText(optionalColumnValue(c.key, a)), c.align === "right" ? ex + c.w - 4 : ex + 4, mid, { align: c.align, baseline: "middle" });
           ex += c.w;
         }
-        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : "off");
+        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : "off", change, compare?.showBaseline ?? false);
       }
     });
 
@@ -433,7 +491,12 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     }
 
     // -- Footer: legend -------------------------------------------------------------------------------------------------
-    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, { today: todayX !== null, nonWorking: shading.length > 0, path: trace !== null });
+    drawLegend(doc, MARGIN, PAGE_H - MARGIN - 6, {
+      today: todayX !== null,
+      nonWorking: shading.length > 0,
+      path: trace !== null,
+      compare: compare ? { baseline: compare.showBaseline } : null,
+    });
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     ink(doc, C.muted);
@@ -448,12 +511,13 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
 }
 
 // The start / finish columns sit between "Rem" and "TF".
-function drawDates(doc: jsPDF, start: number | null, finish: number | null, mid: number) {
+function drawDates(doc: jsPDF, start: number | null, finish: number | null, mid: number, colors?: { start: RGB | null; finish: RGB | null }) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
-  ink(doc, C.text);
   const x0 = MARGIN + TREE_W + COL_W.orig + COL_W.rem;
+  ink(doc, colors?.start ?? C.text);
   doc.text(fmtDate(start), x0 + 4, mid, { baseline: "middle" });
+  ink(doc, colors?.finish ?? C.text);
   doc.text(fmtDate(finish), x0 + COL_W.start + 4, mid, { baseline: "middle" });
 }
 
@@ -527,15 +591,20 @@ function drawTaskBar(
   x: (t: number) => number,
   dataDate: number | null,
   path: "on" | "off" | null,
+  change: ActivityChange | null = null,
+  showBaseline = false,
 ) {
   if (a.start === null || a.finish === null) return;
   const tone = (c: RGB): RGB => (path === "off" ? fade(c) : c);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
   ink(doc, tone(C.muted));
+  // While comparing, how far a modified activity has moved goes in front of its name.
+  const shift = change ? shiftDays(change, a) : 0;
+  const caption = shift !== 0 ? `${fmtShift(shift)} ${a.name}` : a.name;
   // To the right of the bar; when that would run off the chart it goes to the left of the bar instead (as on screen).
   const label = (from: number, leftEdge: number) => {
-    const text = pdfText(a.name);
+    const text = pdfText(caption);
     const w = doc.getTextWidth(text);
     if (from + 3 + w > ganttW && leftEdge - 3 - w >= 0) {
       doc.text(text, ganttX + leftEdge - 3, mid, { align: "right", baseline: "middle" });
@@ -549,6 +618,44 @@ function drawTaskBar(
     doc.setLineWidth(0.9);
     doc.rect(ganttX + left - 1, mid - h / 2 - 1, width + 2, h + 2, "S");
   };
+
+  // Comparing: one colour for the kind of change instead of progress, and where it used to be underneath.
+  if (change) {
+    const was = change.kind === "modified" && showBaseline ? change.before : null;
+    const kind = change.kind;
+    const cx = x(a.type === "finish-milestone" ? a.finish : a.start);
+    const x1 = x(a.start);
+    const x2 = Math.max(x(a.finish), x1 + 1.5);
+    const milestone = isMilestone(a);
+    // Drawn a little up from the middle, to leave room for the baseline under it.
+    const lift = was ? 1.2 : 0;
+    if (was && was.start !== null && was.finish !== null && (was.start !== a.start || was.finish !== a.finish)) {
+      fill(doc, C.baseline);
+      if (isMilestone(was)) diamond(doc, ganttX + x(was.type === "finish-milestone" ? was.finish : was.start), mid + 4.4, 2);
+      else doc.rect(ganttX + x(was.start), mid + 3, Math.max(x(was.finish) - x(was.start), 1.5), 1.6, "F");
+    }
+    if (kind === "removed") {
+      stroke(doc, C.removed);
+      doc.setLineWidth(0.8);
+      doc.setLineDashPattern([2, 1.5], 0);
+      if (milestone) {
+        fill(doc, KIND_ROW.removed);
+        diamond(doc, ganttX + cx, mid, 3.6);
+        doc.lines([[3.6, 3.6], [-3.6, 3.6], [-3.6, -3.6], [3.6, -3.6]], ganttX + cx, mid - 3.6, [1, 1], "S", true);
+      } else {
+        doc.rect(ganttX + x1, mid - 3.2 - lift, x2 - x1, 6.4, "S");
+      }
+      doc.setLineDashPattern([], 0);
+    } else {
+      fill(doc, tone(kind === "unchanged" ? C.unchanged : KIND_FILL[kind]));
+      if (milestone) diamond(doc, ganttX + cx, mid - lift, 3.6);
+      else if (a.type === "loe") doc.rect(ganttX + x1, mid - 1.3 - lift, x2 - x1, 2.6, "F");
+      else doc.rect(ganttX + x1, mid - 3.2 - lift, x2 - x1, 6.4, "F");
+    }
+    if (milestone) label(cx + 5, cx - 5);
+    else label(x2 + 2, x1);
+    return;
+  }
 
   if (isMilestone(a)) {
     const cx = x(a.type === "finish-milestone" ? a.finish : a.start);
@@ -584,7 +691,12 @@ function drawTaskBar(
   label(x2 + 2, x1);
 }
 
-function drawLegend(doc: jsPDF, x0: number, y: number, show: { today: boolean; nonWorking: boolean; path: boolean }) {
+function drawLegend(
+  doc: jsPDF,
+  x0: number,
+  y: number,
+  show: { today: boolean; nonWorking: boolean; path: boolean; compare: { baseline: boolean } | null },
+) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   let x = x0;
@@ -598,10 +710,29 @@ function drawLegend(doc: jsPDF, x0: number, y: number, show: { today: boolean; n
     fill(doc, c);
     doc.rect(sx, y - 3, 14, 6, "F");
   };
-  item("Complete", bar(C.complete), 14);
-  item("Actual", bar(C.actual), 14);
-  item("Remaining", bar(C.remaining), 14);
-  item("Critical", bar(C.critActual), 14);
+  if (show.compare) {
+    item("New", bar(C.added), 14);
+    item("Modified", bar(C.modified), 14);
+    item("Removed", (sx) => {
+      stroke(doc, C.removed);
+      doc.setLineWidth(0.8);
+      doc.setLineDashPattern([2, 1.5], 0);
+      doc.rect(sx, y - 3, 14, 6, "S");
+      doc.setLineDashPattern([], 0);
+    }, 14);
+    item("Unchanged", bar(C.unchanged), 14);
+    if (show.compare.baseline) {
+      item("Baseline", (sx) => {
+        fill(doc, C.baseline);
+        doc.rect(sx, y - 0.8, 14, 1.6, "F");
+      }, 14);
+    }
+  } else {
+    item("Complete", bar(C.complete), 14);
+    item("Actual", bar(C.actual), 14);
+    item("Remaining", bar(C.remaining), 14);
+    item("Critical", bar(C.critActual), 14);
+  }
   item("Level of effort", bar(C.loe), 14);
   item("WBS group", bar(C.summary), 14);
   item("Milestone", (sx) => {

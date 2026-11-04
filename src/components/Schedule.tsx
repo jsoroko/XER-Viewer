@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
+import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib/compare";
 import { downloadBlob } from "../lib/csv";
 import { describeTrace, runTrace, type TraceMode, type TraceSpec } from "../lib/drivingPath";
 import { buildLinks } from "../lib/links";
@@ -27,6 +28,7 @@ import {
 } from "../lib/timeline";
 import { useVirtualRows } from "../lib/useVirtualRows";
 import { OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumn, type OptionalColumnKey } from "../lib/scheduleColumns";
+import type { CompareApi } from "../state/useCompare";
 import { usePersistedBoolean } from "../state/usePersistedBoolean";
 import { usePersistedStrings } from "../state/usePersistedStrings";
 import { nonWorkingRuns } from "../lib/xer/calendar";
@@ -34,6 +36,9 @@ import { isMilestone, type Activity, type Schedule as ScheduleModel, type WbsNod
 import { ActivityDetails } from "./ActivityDetails";
 import { ActivitySortSelect } from "./ActivitySortSelect";
 import { ColumnsMenu } from "./ColumnsMenu";
+import { CompareBar } from "./CompareBar";
+import { CompareMenu } from "./CompareMenu";
+import { CHANGE_BAR, CHANGE_MARK, CHANGE_SOLID, CHANGE_TEXT, CHANGE_TINT } from "./compareStyle";
 import { DateRangeChip } from "./DateRangeChip";
 import { FilterBuilder } from "./FilterBuilder";
 import { FitViewButton } from "./FitViewButton";
@@ -71,12 +76,14 @@ const LINK_COLOR = {
 } as const;
 
 interface Props {
+  /** The schedule to draw. While two programmes are compared this is the current one with the removed activities added. */
   schedule: ScheduleModel;
+  compare: CompareApi;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }
 
-export function Schedule({ schedule, selectedId, onSelect }: Props) {
+export function Schedule({ schedule, compare, selectedId, onSelect }: Props) {
   const [normalCollapsed, setNormalCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   // Groups collapsed while a filter is active, tagged with the filter they belong to (see below).
   const [filterCollapse, setFilterCollapse] = useState<{ for: unknown; ids: ReadonlySet<string> }>({
@@ -153,12 +160,14 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   const dateRangeInvalid = dateRange === "invalid";
   const activeRange = dateRange === "invalid" ? null : dateRange; // an inverted range filters nothing
   const compiled = useMemo(() => compileFilter(schedule, advanced), [schedule, advanced]);
-  // "Path only" is one more condition alongside the filter builder's.
+  // "Path only" and the comparison's change chips are more conditions alongside the filter builder's.
+  const compareVisible = compare.visible;
   const extraTest = useMemo(() => {
     const built = compiled.predicate;
-    if (!pathOnly || !traceIds) return built;
-    return (a: Activity) => traceIds.has(a.id) && (!built || built(a));
-  }, [compiled, pathOnly, traceIds]);
+    const onPath = pathOnly && traceIds ? traceIds : null;
+    if (!onPath && !compareVisible) return built;
+    return (a: Activity) => (!onPath || onPath.has(a.id)) && (!compareVisible || compareVisible(a)) && (!built || built(a));
+  }, [compiled, pathOnly, traceIds, compareVisible]);
   const predicate = useMemo(
     () => makePredicate(filter, query, activeRange, extraTest, searchGroups ? schedule : null),
     [filter, query, activeRange, extraTest, schedule, searchGroups],
@@ -262,6 +271,12 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
 
   const selected = selectedId ? schedule.activityById.get(selectedId) : undefined;
   const detailActivity = selected && selected.projectId === schedule.project.id ? selected : undefined;
+  // What differs from the baseline for the activity in the details panel, as plain sentences.
+  const changeNotes = useMemo(() => {
+    const c = detailActivity && compare.comparison?.changes.get(detailActivity.id);
+    if (!detailActivity || !c || !compare.matched || c.kind === "unchanged") return null;
+    return { kind: c.kind, lines: describeChange(compare.matched, detailActivity, c) };
+  }, [detailActivity, compare.comparison, compare.matched]);
 
   // ---- Dependency lines for the selected activity ---------------------------------
   const linked = showLinks ? detailActivity : undefined; // the activity whose own links are drawn
@@ -431,6 +446,14 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
           today: showToday ? today : null,
           columns: enabledColumns,
           shadeNonWorking: showNonWorking && pattern !== null,
+          compare:
+            compare.active && compare.comparison && compare.baseline && compare.current
+              ? {
+                  label: describeCompare(compare),
+                  changes: compare.comparison.changes,
+                  showBaseline: compare.showBaseline,
+                }
+              : null,
           trace:
             trace && traceResult && traceIds
               ? { label: describeTrace(schedule, trace), ids: traceIds, links: traceResult.links.map((l) => l.rel) }
@@ -587,6 +610,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
             onToggle={(key, on) => setEnabledColumns((cur) => (on ? [...cur, key] : cur.filter((k) => k !== key)))}
           />
           <TraceMenu schedule={schedule} selected={detailActivity} active={trace !== null} onTrace={startTrace} />
+          <CompareMenu compare={compare} />
           <span aria-hidden className="h-5 w-px bg-slate-300 dark:bg-slate-700" />
           <div className="flex items-center gap-3">
             <Switch
@@ -634,7 +658,13 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
           )}
 
           <div className="ml-auto flex items-center gap-3">
-            <Legend links={linked !== undefined} trace={traceIds !== null} shading={shading.length > 0} today={todayInView} />
+            <Legend
+              links={linked !== undefined}
+              trace={traceIds !== null}
+              shading={shading.length > 0}
+              today={todayInView}
+              compare={compare.active ? { baseline: compare.showBaseline } : null}
+            />
             <div className="flex gap-1">
               <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 <LuMinus size={18} aria-hidden />
@@ -665,6 +695,8 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
             </div>
           </div>
         </div>
+
+        {compare.active && <CompareBar compare={compare} />}
       </div>
 
       {/* Table + Gantt share one scroll container so rows stay aligned */}
@@ -802,6 +834,8 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
                 dataDate={dataDate}
                 selected={row.kind === "task" && row.task.id === selectedId}
                 trace={traceIds === null || row.kind !== "task" ? null : traceIds.has(row.task.id) ? "on" : "off"}
+                change={row.kind === "task" ? (compare.comparison?.changes.get(row.task.id) ?? null) : null}
+                showBaseline={compare.showBaseline}
                 columns={activeColumns}
                 onToggle={toggle}
                 onSelect={onSelect}
@@ -830,6 +864,7 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
           key={detailActivity.id}
           schedule={schedule}
           activity={detailActivity}
+          change={changeNotes}
           onSelect={onSelect}
           onClose={() => onSelect(null)}
         />
@@ -838,7 +873,28 @@ export function Schedule({ schedule, selectedId, onSelect }: Props) {
   );
 }
 
-function Legend({ links, trace, shading, today }: { links: boolean; trace: boolean; shading: boolean; today: boolean }) {
+/** For the PDF's header: which two files, and which kinds of change the sheet is limited to. */
+function describeCompare(compare: CompareApi): string {
+  const side = (s: NonNullable<CompareApi["baseline"]>) => `${s.name.replace(/\.xer$/i, "")}${s.dataDate !== null ? ` (${fmtDate(s.dataDate)})` : ""}`;
+  const shown = (["added", "removed", "modified"] as const).filter((k) => compare.chips[k]).map((k) => (k === "added" ? "new" : k));
+  const limited = shown.length < 3 || !compare.showUnchanged;
+  return `Comparing ${side(compare.baseline!)} with ${side(compare.current!)}${limited ? `: showing ${shown.join(", ")}${compare.showUnchanged && shown.length === 3 ? "" : " only"}` : ""}`;
+}
+
+function Legend({
+  links,
+  trace,
+  shading,
+  today,
+  compare,
+}: {
+  links: boolean;
+  trace: boolean;
+  shading: boolean;
+  today: boolean;
+  /** Set while two programmes are compared: bars are then coloured by kind of change, not by progress. */
+  compare: { baseline: boolean } | null;
+}) {
   const item = (swatch: string, label: string) => (
     <span className="flex items-center gap-1.5">
       <span className={swatch} />
@@ -847,10 +903,15 @@ function Legend({ links, trace, shading, today }: { links: boolean; trace: boole
   );
   return (
     <div className="hidden items-center gap-3 text-[11px] text-slate-600 xl:flex dark:text-slate-400" aria-hidden>
-      {item("h-2.5 w-4 rounded-sm bg-emerald-600", "Complete")}
-      {item("h-2.5 w-4 rounded-sm bg-blue-700", "Actual")}
-      {item("h-2.5 w-4 rounded-sm bg-blue-400", "Remaining")}
-      {item("h-2.5 w-4 rounded-sm bg-red-500", "Critical")}
+      {!compare && item("h-2.5 w-4 rounded-sm bg-emerald-600", "Complete")}
+      {!compare && item("h-2.5 w-4 rounded-sm bg-blue-700", "Actual")}
+      {!compare && item("h-2.5 w-4 rounded-sm bg-blue-400", "Remaining")}
+      {!compare && item("h-2.5 w-4 rounded-sm bg-red-500", "Critical")}
+      {compare && item(`h-2.5 w-4 rounded-sm ${CHANGE_BAR.added}`, "New")}
+      {compare && item(`h-2.5 w-4 rounded-sm ${CHANGE_BAR.modified}`, "Modified")}
+      {compare && item("h-2.5 w-4 rounded-sm border-2 border-dashed border-red-500", "Removed")}
+      {compare && item(`h-2.5 w-4 rounded-sm ${CHANGE_BAR.unchanged}`, "Unchanged")}
+      {compare?.baseline && item("h-[3px] w-4 rounded-sm bg-slate-500 dark:bg-slate-400", "Baseline")}
       {item("h-1.5 w-4 rounded-sm bg-teal-500", "Level of effort")}
       {item("h-2 w-4 bg-slate-700 dark:bg-slate-300", "WBS group")}
       {item("size-2.5 rotate-45 bg-slate-800 dark:bg-slate-200", "Milestone")}
@@ -895,19 +956,26 @@ interface RowProps {
   selected: boolean;
   /** Where the row sits against a traced path: on it, off it (dimmed), or null when no trace is showing. */
   trace: "on" | "off" | null;
+  /** How this activity differs from the baseline, while two programmes are compared. */
+  change: ActivityChange | null;
+  showBaseline: boolean;
   columns: OptionalColumn[];
   onToggle: (id: string) => void;
   onSelect: (id: string | null) => void;
 }
 
-function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, columns, onToggle, onSelect }: RowProps) {
+function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selected, trace, change, showBaseline, columns, onToggle, onSelect }: RowProps) {
   const isWbs = row.kind === "wbs";
   const onPath = trace === "on" && !selected;
+  const kind = change && change.kind !== "unchanged" ? change.kind : null;
+  const tint = kind ? CHANGE_TINT[kind] : "";
   const bg = selected
     ? "bg-accent-50 dark:bg-accent-950"
     : onPath
       ? "bg-cyan-50 dark:bg-cyan-950"
-      : isWbs
+      : tint
+        ? tint
+        : isWbs
       ? "bg-slate-50 dark:bg-slate-900"
       : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
 
@@ -916,17 +984,25 @@ function ScheduleRow({ row, top, leftW, treeW, totalW, timeline, dataDate, selec
   return (
     <div
       className={`group absolute left-0 flex border-b border-slate-100 text-xs dark:border-slate-800 ${
-        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
+        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : tint ? tint : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
       }`}
       style={{ top, height: ROW_H, width: totalW }}
       onClick={handle}
       aria-selected={selected || undefined}
     >
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
-        {isWbs ? <WbsCells row={row} treeW={treeW} columns={columns} /> : <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} />}
+        {isWbs ? (
+          <WbsCells row={row} treeW={treeW} columns={columns} />
+        ) : (
+          <TaskCells task={row.task} depth={row.depth} treeW={treeW} columns={columns} change={change} />
+        )}
       </div>
       <div className={`relative shrink-0 overflow-hidden ${trace === "off" ? "opacity-30" : ""}`} style={{ width: timeline.width }}>
-        {isWbs ? <SummaryBar node={row.node} timeline={timeline} /> : <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} ring={trace === "on" ? RING : ""} />}
+        {isWbs ? (
+          <SummaryBar node={row.node} timeline={timeline} />
+        ) : (
+          <TaskBar task={row.task} timeline={timeline} dataDate={dataDate} ring={trace === "on" ? RING : ""} change={change} showBaseline={showBaseline} />
+        )}
       </div>
     </div>
   );
@@ -965,27 +1041,63 @@ function WbsCells({ row, treeW, columns }: { row: Extract<Row, { kind: "wbs" }>;
   );
 }
 
-function TaskCells({ task, depth, treeW, columns }: { task: Activity; depth: number; treeW: number; columns: OptionalColumn[] }) {
+function TaskCells({
+  task,
+  depth,
+  treeW,
+  columns,
+  change,
+}: {
+  task: Activity;
+  depth: number;
+  treeW: number;
+  columns: OptionalColumn[];
+  change: ActivityChange | null;
+}) {
   const float = task.status === "completed" ? "" : fmtDays(task.totalFloatHrs, task.dayHrs);
+  const kind = change && change.kind !== "unchanged" ? change.kind : null;
+  const before = change?.kind === "modified" ? change.before : null;
+  // A value that differs from the baseline is shown in the change colour, with the old value in the tooltip.
+  const moved = (now: number | null, was: number | null | undefined) =>
+    before && was !== undefined && now !== was ? { className: `font-medium ${CHANGE_TEXT.modified}`, title: `Was ${fmtDate(was) || "no date"}` } : { className: "", title: undefined };
+  const startMark = moved(task.start, before?.start);
+  const finishMark = moved(task.finish, before?.finish);
+  const durChanged = (now: number | null, was: number | null | undefined) =>
+    before && was !== undefined && now !== null && was !== null && Math.abs(now - was) >= 0.01
+      ? { className: `font-medium ${CHANGE_TEXT.modified}`, title: `Was ${fmtDays(was, before.dayHrs)}` }
+      : { className: "", title: undefined };
+  const origMark = durChanged(task.origDurHrs, before?.origDurHrs);
+  const remMark = durChanged(task.remDurHrs, before?.remDurHrs);
   return (
     <>
       <div className="flex min-w-0 items-center gap-1.5 pr-2" style={{ width: treeW, paddingLeft: 8 + depth * 14 }}>
+        {kind && (
+          <span
+            aria-label={kind === "added" ? "New" : kind === "removed" ? "Removed" : "Modified"}
+            className={`flex size-4 shrink-0 items-center justify-center rounded text-[13px] font-semibold leading-none ${CHANGE_SOLID[kind]}`}
+          >
+            {CHANGE_MARK[kind]}
+          </span>
+        )}
         <span className={`size-2 shrink-0 ${isMilestone(task) ? "rotate-45" : "rounded-full"} ${STATUS_DOT[task.status]}`} aria-hidden />
         <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-400">{task.code}</span>
-        <span className="truncate" title={task.name}>
+        <span
+          className={`truncate ${kind === "removed" ? "text-slate-400 line-through dark:text-slate-500" : ""}`}
+          title={before && before.name !== task.name ? `${task.name}\nWas “${before.name}”` : task.name}
+        >
           {task.name}
         </span>
       </div>
-      <div className={`${numCell} ${colBorder} text-right`} style={{ width: COLUMNS[0].w }}>
+      <div className={`${numCell} ${colBorder} text-right ${origMark.className}`} style={{ width: COLUMNS[0].w }} title={origMark.title}>
         {fmtDays(task.origDurHrs, task.dayHrs)}
       </div>
-      <div className={`${numCell} ${colBorder} text-right`} style={{ width: COLUMNS[1].w }}>
+      <div className={`${numCell} ${colBorder} text-right ${remMark.className}`} style={{ width: COLUMNS[1].w }} title={remMark.title}>
         {fmtDays(task.remDurHrs, task.dayHrs)}
       </div>
-      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[2].w }}>
+      <div className={`${numCell} ${colBorder} ${startMark.className}`} style={{ width: COLUMNS[2].w }} title={startMark.title}>
         {fmtDate(task.start)}
       </div>
-      <div className={`${numCell} ${colBorder}`} style={{ width: COLUMNS[3].w }}>
+      <div className={`${numCell} ${colBorder} ${finishMark.className}`} style={{ width: COLUMNS[3].w }} title={finishMark.title}>
         {fmtDate(task.finish)}
       </div>
       <div
@@ -1025,17 +1137,63 @@ function SummaryBar({ node, timeline }: { node: WbsNode; timeline: Timeline }) {
 /** Outline for a bar on the traced path. */
 const RING = "outline outline-2 outline-cyan-500";
 
-function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline: Timeline; dataDate: number | null; ring: string }) {
+function TaskBar({
+  task,
+  timeline,
+  dataDate,
+  ring,
+  change,
+  showBaseline,
+}: {
+  task: Activity;
+  timeline: Timeline;
+  dataDate: number | null;
+  ring: string;
+  change: ActivityChange | null;
+  showBaseline: boolean;
+}) {
   if (task.start === null || task.finish === null) return null;
   const title = `${task.code} ${task.name}\n${fmtDate(task.start)} → ${fmtDate(task.finish)}`;
 
+  // While two programmes are compared the bar says what changed, not how far along the work is.
+  const days = change ? shiftDays(change, task) : 0;
+  const lead = days !== 0 ? fmtShift(days) : undefined;
+  const kind = change?.kind;
+  const was = kind === "modified" && showBaseline ? change?.before : null;
+  const baseline =
+    was && was.start !== null && was.finish !== null && (was.start !== task.start || was.finish !== task.finish) ? (
+      isMilestone(was) ? (
+        <div
+          className="absolute size-1.5 rotate-45 bg-slate-500 dark:bg-slate-400"
+          style={{ left: timeline.x(was.type === "finish-milestone" ? was.finish : was.start) - 3, top: ROW_H - 8 }}
+          title={`Baseline: ${fmtDate(was.start)}`}
+        />
+      ) : (
+        <div
+          className="absolute h-[3px] rounded-sm bg-slate-500 dark:bg-slate-400"
+          style={{ left: timeline.x(was.start), width: Math.max(timeline.x(was.finish) - timeline.x(was.start), 3), top: ROW_H - 6 }}
+          title={`Baseline: ${fmtDate(was.start)} → ${fmtDate(was.finish)}`}
+        />
+      )
+    ) : null;
+  const dashed = "border-2 border-dashed border-red-500 dark:border-red-400";
+
   if (isMilestone(task)) {
     const x = timeline.x(task.type === "finish-milestone" ? task.finish : task.start);
-    const color = task.critical ? "bg-red-500" : task.status === "completed" ? "bg-emerald-600" : "bg-slate-800 dark:bg-slate-200";
+    const color = kind
+      ? kind === "removed"
+        ? `box-border ${dashed}`
+        : CHANGE_BAR[kind]
+      : task.critical
+        ? "bg-red-500"
+        : task.status === "completed"
+          ? "bg-emerald-600"
+          : "bg-slate-800 dark:bg-slate-200";
     return (
       <>
-        <div className={`absolute size-2.5 rotate-45 ${color} ${ring}`} style={{ left: x - 5, top: (ROW_H - 10) / 2 }} title={title} />
-        <BarLabel x={x + 9} flipX={x - 9} edge={timeline.width} text={task.name} />
+        {baseline}
+        <div className={`absolute size-2.5 rotate-45 ${color} ${ring}`} style={{ left: x - 5, top: (ROW_H - 10) / 2 - (baseline ? 2 : 0) }} title={title} />
+        <BarLabel x={x + 9} flipX={x - 9} edge={timeline.width} text={task.name} lead={lead} />
       </>
     );
   }
@@ -1043,11 +1201,25 @@ function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline:
   const x1 = timeline.x(task.start);
   const x2 = Math.max(timeline.x(task.finish), x1 + 3);
 
+  if (kind && task.type !== "loe") {
+    return (
+      <>
+        {baseline}
+        <div
+          className={`absolute h-3 rounded-sm ${kind === "removed" ? `box-border ${dashed}` : CHANGE_BAR[kind]} ${ring}`}
+          style={{ left: x1, width: x2 - x1, top: (ROW_H - 12) / 2 - (baseline ? 2 : 0) }}
+          title={title}
+        />
+        <BarLabel x={x2 + 6} flipX={x1 - 6} edge={timeline.width} text={task.name} lead={lead} />
+      </>
+    );
+  }
+
   if (task.type === "loe") {
     return (
       <>
         <div className={`absolute h-1.5 rounded-sm bg-teal-500 ${ring}`} style={{ left: x1, width: x2 - x1, top: (ROW_H - 6) / 2 }} title={title} />
-        <BarLabel x={x2 + 6} flipX={x1 - 6} edge={timeline.width} text={task.name} />
+        <BarLabel x={x2 + 6} flipX={x1 - 6} edge={timeline.width} text={task.name} lead={lead} />
       </>
     );
   }
@@ -1077,13 +1249,15 @@ function TaskBar({ task, timeline, dataDate, ring }: { task: Activity; timeline:
 const LABEL_CHAR_W = 5.6;
 
 /** Sits right of its bar; when that would run past the chart's edge (and clip), it moves to the left of the bar. */
-function BarLabel({ x, flipX, edge, text }: { x: number; flipX: number; edge: number; text: string }) {
-  const flip = x + text.length * LABEL_CHAR_W > edge && flipX - text.length * LABEL_CHAR_W >= 0;
+function BarLabel({ x, flipX, edge, text, lead }: { x: number; flipX: number; edge: number; text: string; lead?: string }) {
+  const chars = text.length + (lead ? lead.length + 1 : 0);
+  const flip = x + chars * LABEL_CHAR_W > edge && flipX - chars * LABEL_CHAR_W >= 0;
   return (
     <span
       className="pointer-events-none absolute whitespace-nowrap text-[10px] leading-[26px] text-slate-500 dark:text-slate-400"
       style={flip ? { right: edge - flipX, top: 0 } : { left: x, top: 0 }}
     >
+      {lead && <span className={`mr-1 font-semibold ${CHANGE_TEXT.modified}`}>{lead}</span>}
       {text}
     </span>
   );

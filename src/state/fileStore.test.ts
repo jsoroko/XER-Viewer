@@ -1,6 +1,17 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { clearLastFile, describeStorageError, loadLastFile, saveLastFile, type StoredFile } from "./fileStore";
+import {
+  clearLastFile,
+  clearRecentFiles,
+  describeStorageError,
+  listRecentFiles,
+  loadLastFile,
+  loadRecentFile,
+  recentKey,
+  saveLastFile,
+  saveRecentFile,
+  type StoredFile,
+} from "./fileStore";
 
 const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 const file = (name: string, text: string): StoredFile => ({ name, size: text.length, savedAt: 1_700_000_000_000, buffer: bytes(text) });
@@ -57,5 +68,53 @@ describe("describeStorageError", () => {
   test("falls back to the error message, then a generic one", () => {
     expect(describeStorageError(new Error("boom"))).toBe("boom");
     expect(describeStorageError("weird")).toBe("Couldn't remember this file.");
+  });
+});
+
+describe("recently opened files", () => {
+  const recent = (name: string, savedAt: number, size = 10) => ({ key: recentKey(name, size), name, size, savedAt, dataDate: null });
+
+  beforeEach(async () => {
+    await clearRecentFiles();
+  });
+
+  test("lists files newest first, with their bytes available separately", async () => {
+    await saveRecentFile(recent("old.xer", 1), bytes("old"));
+    await saveRecentFile(recent("new.xer", 2), bytes("new"));
+    expect((await listRecentFiles()).map((f) => f.name)).toEqual(["new.xer", "old.xer"]);
+    expect(new TextDecoder().decode((await loadRecentFile(recentKey("old.xer", 10)))!)).toBe("old");
+    expect(await loadRecentFile("nothing")).toBeNull();
+  });
+
+  test("opening the same file again replaces its entry instead of adding a second one", async () => {
+    await saveRecentFile(recent("plan.xer", 1), bytes("one"));
+    await saveRecentFile(recent("plan.xer", 5), bytes("two"));
+    const list = await listRecentFiles();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.savedAt).toBe(5);
+    expect(new TextDecoder().decode((await loadRecentFile(list[0]!.key))!)).toBe("two");
+  });
+
+  test("keeps only the five newest, and forgets the bytes of the rest", async () => {
+    for (let i = 1; i <= 7; i++) await saveRecentFile(recent(`f${i}.xer`, i), bytes(`n${i}`));
+    expect((await listRecentFiles()).map((f) => f.name)).toEqual(["f7.xer", "f6.xer", "f5.xer", "f4.xer", "f3.xer"]);
+    expect(await loadRecentFile(recentKey("f1.xer", 10))).toBeNull();
+  });
+
+  test("drops older files once the total gets too large, but always keeps the newest", async () => {
+    const mb = 1024 * 1024;
+    await saveRecentFile(recent("a.xer", 1, 100 * mb), bytes("a"));
+    await saveRecentFile(recent("b.xer", 2, 100 * mb), bytes("b"));
+    await saveRecentFile(recent("c.xer", 3, 100 * mb), bytes("c"));
+    expect((await listRecentFiles()).map((f) => f.name)).toEqual(["c.xer", "b.xer"]);
+    await saveRecentFile(recent("huge.xer", 4, 400 * mb), bytes("h"));
+    expect((await listRecentFiles()).map((f) => f.name)).toEqual(["huge.xer"]);
+  });
+
+  test("does not disturb the remembered last file", async () => {
+    await saveLastFile(file("last.xer", "last"));
+    await saveRecentFile(recent("x.xer", 1), bytes("x"));
+    await clearRecentFiles();
+    expect((await loadLastFile())!.name).toBe("last.xer");
   });
 });

@@ -242,6 +242,37 @@ function percentComplete(
   return Math.min(100, Math.max(0, pct));
 }
 
+/**
+ * Puts a WBS tree in display order (groups by sequence, activities by code) and works out every group's rolled-up
+ * dates and activity count. Used when the tree is first built, and again when activities are added to a copy of it.
+ */
+export function rollUpWbs(roots: WbsNode[]) {
+  const bySeq = (a: WbsNode, b: WbsNode) => a.seq - b.seq || naturalCompare(a.code, b.code);
+  const byCode = (a: Activity, b: Activity) => naturalCompare(a.code, b.code);
+  const rollUp = (node: WbsNode) => {
+    node.children.sort(bySeq);
+    node.activities.sort(byCode);
+    let start: number | null = null;
+    let finish: number | null = null;
+    let count = node.activities.length;
+    const widen = (s: number | null, f: number | null) => {
+      if (s !== null && (start === null || s < start)) start = s;
+      if (f !== null && (finish === null || f > finish)) finish = f;
+    };
+    for (const a of node.activities) widen(a.start, a.finish);
+    for (const c of node.children) {
+      rollUp(c);
+      widen(c.start, c.finish);
+      count += c.activityCount;
+    }
+    node.start = start;
+    node.finish = finish;
+    node.activityCount = count;
+  };
+  roots.sort(bySeq);
+  roots.forEach(rollUp);
+}
+
 function push<K, V>(map: Map<K, V[]>, key: K, value: V) {
   const list = map.get(key);
   if (list) list.push(value);
@@ -439,30 +470,7 @@ export function buildSchedule(xer: XerFile, projectId: string): Schedule {
     wbs.set(orphans.id, orphans);
   }
 
-  const bySeq = (a: WbsNode, b: WbsNode) => a.seq - b.seq || naturalCompare(a.code, b.code);
-  const byCode = (a: Activity, b: Activity) => naturalCompare(a.code, b.code);
-  const rollUp = (node: WbsNode) => {
-    node.children.sort(bySeq);
-    node.activities.sort(byCode);
-    let start: number | null = null;
-    let finish: number | null = null;
-    let count = node.activities.length;
-    const widen = (s: number | null, f: number | null) => {
-      if (s !== null && (start === null || s < start)) start = s;
-      if (f !== null && (finish === null || f > finish)) finish = f;
-    };
-    for (const a of node.activities) widen(a.start, a.finish);
-    for (const c of node.children) {
-      rollUp(c);
-      widen(c.start, c.finish);
-      count += c.activityCount;
-    }
-    node.start = start;
-    node.finish = finish;
-    node.activityCount = count;
-  };
-  roots.sort(bySeq);
-  roots.forEach(rollUp);
+  rollUpWbs(roots);
 
   // --- Relationships ------------------------------------------------------------
   const tp = reader(xer.tables.get("TASKPRED"));

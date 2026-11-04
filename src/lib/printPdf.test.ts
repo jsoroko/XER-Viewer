@@ -11,6 +11,7 @@ import {
   type FilterState,
   type PrintInput,
 } from "./printPdf";
+import { classify, DEFAULT_FIELDS, matchSchedules } from "./compare";
 import { traceDriving } from "./drivingPath";
 import { buildRows, makePredicate, type Row } from "./scheduleRows";
 import { buildSchedule, listProjects } from "./xer/model";
@@ -423,5 +424,49 @@ describe("the ends of the chart", () => {
     expect(pages).toBeGreaterThan(0);
     expect(shown(text)).toContain(pdfText(last.name));
     expect(flat.every((r) => r.kind === "task")).toBe(true);
+  });
+});
+
+describe("comparing two programmes", () => {
+  const DAY = 86_400_000;
+  const baseline = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const current = buildSchedule(xer, listProjects(xer)[0]!.id);
+  const moved = current.activities.find((a) => a.code === "PR1030")!;
+  moved.start! += 14 * DAY;
+  moved.finish! += 14 * DAY;
+  const matched = matchSchedules(baseline, current);
+  const { changes } = classify(matched, DEFAULT_FIELDS);
+  const compareRows = buildRows(matched.schedule.roots, new Set(), null);
+  const compare = { label: "Comparing Rev A with Rev B", changes, showBaseline: true };
+  const renderCompared = async (c: typeof compare | null) => {
+    const { blob } = await buildPdf(
+      { schedule: matched.schedule, rows: compareRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), compare: c },
+      { compress: false },
+    );
+    return shown(pdfString(await blob.arrayBuffer()));
+  };
+
+  test("says which two files are compared in the header", async () => {
+    expect((await renderCompared(compare)).some((l) => l.startsWith("Comparing Rev A with Rev B"))).toBe(true);
+  });
+
+  test("marks a modified activity, and says how far it moved in front of its name", async () => {
+    const lines = await renderCompared(compare);
+    expect(lines).toContain("~");
+    expect(lines.some((l) => l.startsWith("+14d Procure MEP Equipment"))).toBe(true);
+  });
+
+  test("the legend names the kinds of change instead of the progress colours, with the baseline when it is drawn", async () => {
+    const lines = await renderCompared(compare);
+    for (const word of ["New", "Modified", "Removed", "Unchanged", "Baseline"]) expect(lines).toContain(word);
+    expect(lines).not.toContain("Remaining");
+    expect(await renderCompared({ ...compare, showBaseline: false })).not.toContain("Baseline");
+  });
+
+  test("a plain print is unchanged by all this", async () => {
+    const lines = await renderCompared(null);
+    expect(lines).toContain("Remaining");
+    expect(lines).not.toContain("Modified");
+    expect(lines).not.toContain("~");
   });
 });

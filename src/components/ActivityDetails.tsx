@@ -9,12 +9,15 @@ import {
   RESOURCE_TYPE_LABEL,
   TASK_TYPE_LABEL,
 } from "../lib/xer/values";
+import { CHANGE_MARK, CHANGE_SOLID, CHANGE_TINT, CHANGE_WORD } from "./compareStyle";
 import { StatusBadge } from "./ui";
 import { usePersistedNumber } from "../state/usePersistedNumber";
 
 interface Props {
   schedule: Schedule;
   activity: Activity;
+  /** While two programmes are compared: how this activity differs from the baseline, in sentences. */
+  change?: { kind: "added" | "removed" | "modified"; lines: string[] } | null;
   onSelect: (id: string) => void;
   onClose: () => void;
 }
@@ -190,7 +193,7 @@ function RelationshipTable({
   );
 }
 
-export function ActivityDetails({ schedule, activity: a, onSelect, onClose }: Props) {
+export function ActivityDetails({ schedule, activity: a, change, onSelect, onClose }: Props) {
   const [tab, setTab] = useState<DetailTab>("general");
   // Remembered across visits and across activities, like the table's own width.
   const [height, setHeight] = usePersistedNumber("xerview-detail-height", DEFAULT_DETAIL_H);
@@ -269,6 +272,24 @@ export function ActivityDetails({ schedule, activity: a, onSelect, onClose }: Pr
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
+        {change && (
+          <div className={`flex gap-3 border-b px-4 py-2 text-sm ${CHANGE_TINT[change.kind]} border-slate-200 dark:border-slate-800`}>
+            <span
+              aria-hidden
+              className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded text-[13px] font-semibold leading-none ${CHANGE_SOLID[change.kind]}`}
+            >
+              {CHANGE_MARK[change.kind]}
+            </span>
+            <div className="min-w-0">
+              <p className="font-medium">{CHANGE_WORD[change.kind]}</p>
+              <ul className="text-slate-700 dark:text-slate-300">
+                {change.lines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
         {tab === "general" && <General schedule={schedule} a={a} />}
 
         {tab === "relationships" && (

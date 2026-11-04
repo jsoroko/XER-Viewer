@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeXer, parseXer, XerParseError, type XerFile } from "../lib/xer/parse";
 import { clearLastFile, describeStorageError, loadLastFile, saveLastFile, type StoredFile } from "./fileStore";
+import { rememberRecent } from "./recentFiles";
 
 export type LoadState =
   | { status: "idle" }
@@ -59,6 +60,8 @@ export function useXerFile() {
           await clearLastFile().catch(() => {});
           if (mine === ticket.current) setStorageNotice(describeStorageError(e));
         });
+        // Also offered, afterwards, as a file to compare with. Failing to remember it is not worth mentioning.
+        void rememberRecent(name, source.buffer, xer);
       }
       return "ok";
     } catch (e) {
