@@ -3,8 +3,8 @@
 This follows the standard `myapp` deployment guide (native Cloudflare Tunnel + Nginx on
 the host, the app as a rootless Podman Quadlet), applied to XER Viewer.
 
-This guide uses **`xer.sorocore.co.uk`** as the hostname. If you would rather use a different one,
-replace it throughout.
+This guide uses **`xer.example.com`** as the hostname (a subdomain of `example.com`). Replace both with your own
+hostname and domain throughout, and `<YOUR_GITHUB_USER>` with the GitHub account that owns your copy of the repository.
 
 ## What is different from the standard guide
 
@@ -124,7 +124,7 @@ ingress:
     service: ssh://localhost:22
   - hostname: app.example.com               # existing
     service: http://localhost:80
-  - hostname: xer.sorocore.co.uk            # NEW: requests for this hostname...
+  - hostname: xer.example.com            # NEW: requests for this hostname...
     service: http://localhost:80            # ...go to the host nginx on port 80
   - service: http_status:404                # the catch-all must stay LAST
 ```
@@ -145,8 +145,8 @@ sudo cloudflared tunnel --config "$CONFIG" ingress validate
 #   do NOT restart until it says OK. ("No configuration file was found" = $CONFIG is empty or the
 #   path is wrong.)
 
-sudo cloudflared tunnel --config "$CONFIG" ingress rule https://xer.sorocore.co.uk
-# ^ asks "which rule would handle this URL?". Expect it to show hostname xer.sorocore.co.uk and
+sudo cloudflared tunnel --config "$CONFIG" ingress rule https://xer.example.com
+# ^ asks "which rule would handle this URL?". Expect it to show hostname xer.example.com and
 #   service http://localhost:80 — not the 404 rule.
 
 sudo systemctl restart cloudflared
@@ -164,7 +164,7 @@ sudo cp "$CONFIG.bak" "$CONFIG" && sudo systemctl restart cloudflared
 ```
 
 **Add the DNS record** so the hostname points at your tunnel. Easiest, and needs no certificate
-on the Pi — in the Cloudflare dashboard: **sorocore.co.uk → DNS → Records → Add record**
+on the Pi — in the Cloudflare dashboard: **example.com → DNS → Records → Add record** (use your own domain)
 
 | Field | Value |
 | --- | --- |
@@ -174,7 +174,7 @@ on the Pi — in the Cloudflare dashboard: **sorocore.co.uk → DNS → Records 
 | Proxy status | Proxied (orange cloud) |
 
 (The tunnel ID is the `tunnel:` value at the top of your config file.) The command-line
-alternative is `cloudflared tunnel route dns <TUNNEL_NAME_OR_ID> xer.sorocore.co.uk`, but it needs
+alternative is `cloudflared tunnel route dns <TUNNEL_NAME_OR_ID> xer.example.com`, but it needs
 the login certificate (`cert.pem`) in the home directory of whoever runs it, and fails with
 "Cannot determine default origin certificate path" if that isn't there.
 
@@ -191,7 +191,7 @@ sudo nano /etc/nginx/sites-available/xer-viewer
 ```nginx
 server {                                     # one nginx "server block" — one website
     listen 80;                               # cloudflared delivers traffic to port 80 on this machine
-    server_name xer.sorocore.co.uk;      # only answer requests for this hostname
+    server_name xer.example.com;      # only answer requests for this hostname
 
     location / {                             # every URL path
         proxy_pass http://127.0.0.1:3100;    # hand the request to the app container
@@ -218,10 +218,10 @@ Leave nginx's `default` site alone unless you hit the "Welcome to nginx!" page (
 
 ## 4. Get the code and build the image
 
-The repository is private, so the Pi needs read access. The safest way is a **deploy key**:
+If the repository is private, the Pi needs read access. The safest way is a **deploy key**:
 an SSH key that can read *only this one repository* and cannot write to it.
 (If you make the repository public, skip to "Clone", using
-`https://github.com/jsoroko/XER-Viewer.git`.)
+`https://github.com/<YOUR_GITHUB_USER>/XER-Viewer.git`.)
 
 ### 4a. Create a read-only deploy key
 
@@ -256,7 +256,7 @@ ssh -T git@github-xer
 # ^ first connection asks whether to trust GitHub's host key. Check the fingerprint shown is exactly
 #     SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU   (ED25519)
 #   which is GitHub's published one (https://docs.github.com/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints),
-#   then type "yes". Expected reply: "Hi jsoroko/XER-Viewer! You've successfully authenticated..."
+#   then type "yes". Expected reply: "Hi <YOUR_GITHUB_USER>/XER-Viewer! You've successfully authenticated..."
 #   If the fingerprint differs, answer "no" and stop.
 ```
 
@@ -268,7 +268,7 @@ mkdir -p ~/.config/containers/systemd
 # ^ create the folders; -p = no error if they exist, and create missing parents
 
 cd ~/apps/xer-viewer/src
-git clone git@github-xer:jsoroko/XER-Viewer.git xer-viewer
+git clone git@github-xer:<YOUR_GITHUB_USER>/XER-Viewer.git xer-viewer
 # ^ the trailing "xer-viewer" names the local folder, so it matches the paths used below
 ls ~/apps/xer-viewer/src/
 # ^ should show exactly "xer-viewer"
@@ -374,14 +374,14 @@ podman logs -f xer-viewer-app
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:3100/
 # ^ the container, through the published port (expect HTTP 200)
 
-curl -s -o /dev/null -w "HTTP %{http_code}\n" -H "Host: xer.sorocore.co.uk" http://127.0.0.1/
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -H "Host: xer.example.com" http://127.0.0.1/
 # ^ through the host nginx (expect HTTP 200)
 
-curl -s -o /dev/null -w "HTTP %{http_code}\n" https://xer.sorocore.co.uk
+curl -s -o /dev/null -w "HTTP %{http_code}\n" https://xer.example.com
 # ^ from outside: through Cloudflare, the tunnel and nginx
 ```
 
-Then open `https://xer.sorocore.co.uk` in a browser, click **Try a sample project**, and
+Then open `https://xer.example.com` in a browser, click **Try a sample project**, and
 check the Overview, Schedule and Tables views load.
 
 ## 7. Notes on running it
