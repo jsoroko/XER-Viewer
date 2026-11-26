@@ -3,6 +3,11 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.3.0 (2026-11-26)
+
+- Add circle-node level guides, a settings menu, a PDF print dialog and trace/activity tabs
+- Make the deployment guide generic: placeholder hostname and GitHub user
+
 ## 26.2.2 (2026-11-04)
 
 - Explain each Compare by option, and drop Duration and make Progress opt-in
