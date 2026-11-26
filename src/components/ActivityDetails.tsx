@@ -12,6 +12,7 @@ import {
 } from "../lib/xer/values";
 import { CHANGE_MARK, CHANGE_SOLID, CHANGE_TINT, CHANGE_WORD } from "./compareStyle";
 import { StatusBadge } from "./ui";
+import { ResizeGrip } from "./ResizeGrip";
 import { DEFAULT_PANEL_H, useHeightResize } from "./useHeightResize";
 
 interface Props {
@@ -223,13 +224,7 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
       style={embedded ? undefined : fitted ? { maxHeight: "70vh" } : { height }}
     >
       {!embedded && (
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize activity details"
-          {...separator}
-          className="absolute inset-x-0 top-0 h-1.5 -translate-y-1/2 cursor-row-resize touch-none hover:bg-accent-500/40"
-        />
+        <ResizeGrip orientation="horizontal" label="Resize activity details" {...separator} />
       )}
       <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 px-3 dark:border-slate-800">
         {!embedded && (

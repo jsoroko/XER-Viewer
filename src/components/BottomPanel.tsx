@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { LuChevronsDownUp, LuX } from "react-icons/lu";
 import type { Activity } from "../lib/xer/model";
+import { ResizeGrip } from "./ResizeGrip";
 import { DEFAULT_PANEL_H, useHeightResize } from "./useHeightResize";
 
 type PanelTab = "trace" | "activity";
@@ -96,13 +97,7 @@ export function BottomPanel({
       // the stock height, and after that it has the dragged height too. A fitted tab is as tall as its content, up to most of the window.
       style={fitted[shown] ? { maxHeight: "70vh" } : shown === "activity" || height !== DEFAULT_PANEL_H ? { height } : { maxHeight: height }}
     >
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize panel"
-        {...separator}
-        className="absolute inset-x-0 top-0 z-10 h-1.5 -translate-y-1/2 cursor-row-resize touch-none hover:bg-accent-500/40"
-      />
+      <ResizeGrip orientation="horizontal" label="Resize panel" {...separator} />
       <div role="tablist" aria-label="Trace and activity" className="flex shrink-0 items-end gap-0.5 border-b border-slate-200 bg-slate-50 px-3 pt-1 dark:border-slate-800 dark:bg-slate-950/50">
         <Tab id="panel-tab-trace" panelId="panel-trace" selected={shown === "trace"} onSelect={() => setTab("trace")} onClose={onCloseTrace} closeLabel="Close trace" closeTitle="Close the trace" onFit={shown === "trace" ? fit : undefined}>
           Driving trace

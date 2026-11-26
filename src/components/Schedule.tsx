@@ -62,6 +62,7 @@ import { TraceMenu } from "./TraceMenu";
 import { TracePanel } from "./TracePanel";
 import { PrintDialog } from "./PrintDialog";
 import { BottomPanel } from "./BottomPanel";
+import { ResizeGrip } from "./ResizeGrip";
 import { WbsLevelSelect } from "./WbsLevelSelect";
 import { LuArrowDown, LuArrowUp, LuChevronDown, LuChevronRight, LuChevronsDown, LuChevronsUp, LuFilter, LuFoldVertical, LuMinus, LuPlus, LuPrinter, LuTarget, LuUnfoldVertical } from "react-icons/lu";
 import { STATUS_DOT, Switch, badgeClass, buttonClass, iconButtonClass, iconToggleClass, inputClass } from "./ui";
@@ -565,11 +566,13 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
   };
 
   // ---- Left-pane resize -----------------------------------------------------
+  const [tableResized, setTableResized] = usePersistedBoolean("xerview-table-resized", false);
   const drag = useRef<{ x: number; w: number } | null>(null);
   const unlockSelection = useRef<(() => void) | null>(null);
   // If the panel goes away in the middle of a drag, text selection must not stay switched off.
   useEffect(() => () => unlockSelection.current?.(), []);
   const onResizeDown = (e: PointerEvent<HTMLDivElement>) => {
+    setTableResized(true); // the first-visit pointer to the divider has done its job
     e.preventDefault(); // otherwise the press starts a text selection that the drag then extends
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { x: e.clientX, w: leftW };
@@ -917,10 +920,27 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
         className="relative min-h-0 flex-1 overflow-auto bg-white focus:outline-none dark:bg-slate-950"
       >
         <div style={{ width: totalW, minWidth: "100%" }}>
+          {/* The divider between table and chart: a zero-size strip that sticks to the top-left of what is on screen (so it
+              ends up exactly where the table does), with the grab zone and its tab laid out from there, the full visible
+              height, over the header and the rows. */}
+          <div className="sticky left-0 top-0 z-40 h-0 w-0">
+            <ResizeGrip
+              orientation="vertical"
+              label="Resize table"
+              style={{ left: leftW - 6, height: virtual.viewHeight }}
+              tabTop={(HEADER_H - 22) / 2}
+              onPointerDown={onResizeDown}
+              onPointerMove={onResizeMove}
+              onPointerUp={onResizeUp}
+              onPointerCancel={onResizeUp}
+              tip={tableResized ? undefined : "Drag this divider to resize the table"}
+              onDismissTip={() => setTableResized(true)}
+            />
+          </div>
           {/* Sticky header */}
           <div className="sticky top-0 z-20 flex border-b border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-900" style={{ height: HEADER_H, width: totalW }}>
             <div
-              className="sticky left-0 z-30 flex shrink-0 items-end border-r border-slate-300 bg-slate-100 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+              className="sticky left-0 z-30 flex shrink-0 items-end border-r border-slate-300 bg-slate-100 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 [&>:last-child]:pr-2"
               style={{ width: leftW }}
             >
               <div className="min-w-0 flex-1 truncate px-3 pb-1.5" style={{ width: treeW }} title="Activity code and name">
@@ -956,16 +976,6 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                   {c.label}
                 </div>
               ))}
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize table"
-                onPointerDown={onResizeDown}
-                onPointerMove={onResizeMove}
-                onPointerUp={onResizeUp}
-                onPointerCancel={onResizeUp}
-                className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none hover:bg-accent-500/40"
-              />
             </div>
             <TimeScale ticks={ticks} width={timeline.width} />
           </div>
@@ -1215,7 +1225,7 @@ const TimeScale = memo(function TimeScale({ ticks, width }: { ticks: ReturnType<
       <div
         key={i}
         className="absolute h-[22px] overflow-hidden whitespace-nowrap border-l border-slate-300 px-1 text-[10px] leading-[22px] text-slate-600 dark:border-slate-700 dark:text-slate-400"
-        style={{ left: t.x, width: t.w, top }}
+        style={{ left: t.x, width: t.w, top, paddingLeft: t.x < 10 ? 10 : undefined }}
       >
         {t.label}
       </div>

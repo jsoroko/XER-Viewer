@@ -7,8 +7,10 @@ the browser and never leaves your machine, so there is no backend.
 
 ## Features
 
-- **Resizable panels** – drag the table's right edge, or the top edge of the activity details panel underneath
-  the schedule, to resize either one. Both sizes are remembered between visits.
+- **Resizable panels** – drag the divider between the table and the chart (marked by a small grip tab in the header; the whole divider can be grabbed, and turns grey while the pointer is on it), or the
+  top edge of the details / trace panel underneath the schedule (marked by a grip tab on the edge), to resize either one. Both
+  sizes are remembered between visits. The first time, the tab pulses and a short tip points at the divider until you use it
+  or dismiss it.
 - **Overview** – project dates, progress, critical count, schedule-health checks (open ends, relationship mix),
   next critical activities, file metadata and a table inventory.
 - **Schedule** – WBS-grouped activity table with a synchronized Gantt chart: actual/remaining split at the data
