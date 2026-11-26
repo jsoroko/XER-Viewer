@@ -3,6 +3,10 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.3.1 (2026-11-26)
+
+- Allow the PDF preview frame in the CSP, and offer Fit on the standalone details panel
+
 ## 26.3.0 (2026-11-26)
 
 - Add circle-node level guides, a settings menu, a PDF print dialog and trace/activity tabs
