@@ -3,6 +3,10 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.4.0 (2026-11-26)
+
+- Make the table divider easy to find: grip tab, full-height grab strip, first-visit tip
+
 ## 26.3.2 (2026-11-26)
 
 - Show the PDF preview in Safari: drop frame-ancestors from the CSP
