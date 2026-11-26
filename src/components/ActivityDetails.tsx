@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { LuChevronsDownUp } from "react-icons/lu";
 import { fmtDateTime, fmtDays, fmtMoney, fmtNumber } from "../lib/format";
 import { holidayCount, summarizeWeek, workingDaysBetween } from "../lib/xer/calendar";
 import { isMilestone, wbsPath, type Activity, type Relationship, type Schedule } from "../lib/xer/model";
@@ -11,7 +12,7 @@ import {
 } from "../lib/xer/values";
 import { CHANGE_MARK, CHANGE_SOLID, CHANGE_TINT, CHANGE_WORD } from "./compareStyle";
 import { StatusBadge } from "./ui";
-import { useHeightResize } from "./useHeightResize";
+import { DEFAULT_PANEL_H, useHeightResize } from "./useHeightResize";
 
 interface Props {
   schedule: Schedule;
@@ -198,6 +199,9 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
   const [tab, setTab] = useState<DetailTab>("general");
   // Remembered across visits and across activities, like the table's own width.
   const { height, separator } = useHeightResize();
+  // On its own (no trace open) the panel offers the same Fit as the tabbed one: just as tall as the content, until dragged again.
+  const [fitted, setFitted] = useState(false);
+  useEffect(() => setFitted(false), [height]);
   const preds = schedule.predecessors.get(a.id) ?? [];
   const succs = schedule.successors.get(a.id) ?? [];
   const assigns = schedule.assignments.get(a.id) ?? [];
@@ -216,7 +220,7 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
   return (
     <div
       className={embedded ? "flex min-h-0 flex-1 flex-col" : "relative flex shrink-0 flex-col border-t border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"}
-      style={embedded ? undefined : { height }}
+      style={embedded ? undefined : fitted ? { maxHeight: "70vh" } : { height }}
     >
       {!embedded && (
         <div
@@ -252,6 +256,17 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
             </button>
           ))}
         </div>
+        {!embedded && height !== DEFAULT_PANEL_H && !fitted && (
+          <button
+            type="button"
+            onClick={() => setFitted(true)}
+            aria-label="Fit panel to content"
+            title="Fit the panel's height to its content"
+            className="ml-2 rounded p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-800"
+          >
+            <LuChevronsDownUp size={14} aria-hidden />
+          </button>
+        )}
         {!embedded && (
           <button
             type="button"

@@ -37,7 +37,8 @@ the browser and never leaves your machine, so there is no backend.
     activity's details (General, Relationships, Resources, Codes), so neither hides the other. Each tab has its own **×**: the trace
     tab closes the trace, the activity tab deselects the activity. Selecting a row doesn't switch tabs; the two share one panel height,
     which you can drag and which is remembered. Once the height has been dragged, a **Fit** button appears beside the shown tab's ×
-    and makes the panel just as tall as that tab's content (up to most of the window) until it is dragged again. A relationship *drives* when it has no relationship
+    (and beside the ✕ of the details panel when no trace is open) and makes the panel just as tall as its content (up to most of
+    the window) until it is dragged again. A relationship *drives* when it has no relationship
     float: the successor's date is exactly what the predecessor's date plus lag asks for. That is measured in working
     time on the predecessor's calendar (P6's default calendar for lag) from the dates already in the file, so
     calendars, lags, constraints and progress are respected, and nothing is rescheduled. Tied chains are all
