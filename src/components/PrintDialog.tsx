@@ -185,7 +185,7 @@ export function PrintDialog({ makeInput, guidesNote, busy, error, onDownload, on
               ) : preview ? (
                 <iframe
                   key={preview.url}
-                  title={`Preview of page ${page + 1}`}
+                  aria-label={`Preview of page ${page + 1}`}
                   src={`${preview.url}#toolbar=0&navpanes=0&view=Fit`}
                   className={`h-full w-full rounded border border-slate-300 bg-white transition-opacity dark:border-slate-700 ${updating ? "opacity-60" : ""}`}
                 />
