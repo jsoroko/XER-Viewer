@@ -4,16 +4,20 @@ import { fmtShift, shiftDays, type ActivityChange } from "./compare";
 import { COMPARE_COLUMNS, compareColumnCell } from "./compareColumns";
 import { fmtDate, fmtDateTime, fmtDays } from "./format";
 import { buildLegend, type LegendGroup, type LegendKey } from "./legend";
+import { colourAt, guideMasks, hexToRgb, inkFor, PDF_PLAIN_INDENT_STEP, type PdfGuides } from "./levelGuides";
 import {
   ACTIVITY_FILTER_LABEL,
   DATE_MODE_LABEL,
+  describeActivitySort,
   describeDateRange,
   type ActivityFilter,
   type ActivitySort,
   type DateMode,
   type Row,
+  type WbsSort,
 } from "./scheduleRows";
 import { routeLink, SIDES, type Point, type Side } from "./links";
+import { DEFAULT_LAYOUT, PAPERS, type ActivityText, type BarLabels, type PaperSize, type PrintLayout } from "./printLayout";
 import { FIXED_COLUMNS, OPTIONAL_COLUMNS, optionalColumnValue, type OptionalColumnKey } from "./scheduleColumns";
 import { buildTicks, DAY, makeTimeline, paddedRange } from "./timeline";
 import { nonWorkingRuns } from "./xer/calendar";
@@ -21,18 +25,20 @@ import { isMilestone, type Activity, type Relationship, type Schedule } from "./
 
 /**
  * Prints the schedule as it is on screen (the filtered rows, with groups open or closed as you left them) to a PDF:
- * A3 landscape, an activity table on the left and a Gantt chart scaled to fit the page width on the right, repeated
+ * A4, A3 or A2 landscape, an activity table on the left and a Gantt chart scaled to fit the page width on the right, repeated
  * across as many pages as the rows need. Drawn directly with jsPDF (loaded on demand) so the page size is exact in
  * every browser, instead of relying on the print dialog.
  */
 
 // ---- Page geometry (points; 1 pt = 1/72 inch) -------------------------------------------------------------------
-export const PAGE_W = 1190.55; // A3 landscape: 420 mm
-export const PAGE_H = 841.89; //                297 mm
+// The page itself comes from the chosen paper (see printLayout.ts); A3 landscape is 1190.55 x 841.89.
 const MARGIN = 28;
 /** Empty space kept at each end of the printed chart. */
 const CHART_MARGIN_PT = 10;
+/** The Activity column's width, and the least it is when it widens to fit the names. */
 const TREE_W = 262;
+/** The most of the page's width the Activity column may take when it widens to fit. */
+const TREE_CAP_SHARE = 0.35;
 /** The optional columns as printed: shorter labels and widths in points, since there is no tooltip on paper. */
 const PDF_COLUMNS: Record<OptionalColumnKey, { label: string; w: number }> = {
   percent: { label: "%", w: 30 },
@@ -43,6 +49,10 @@ const PDF_COLUMNS: Record<OptionalColumnKey, { label: string; w: number }> = {
 /** Non-working shading is only drawn once a day is at least this wide on paper, as it is on screen, where it needs a few pixels. */
 const SHADING_MIN_PT_PER_DAY = 1;
 const ROW_H = 13.5;
+/** Each further line of a wrapped name makes its row this much taller, and a name wraps onto this many lines at most. */
+export const LINE_H = 8.5;
+export const MAX_NAME_LINES = 3;
+export const rowHeight = (lines: number) => ROW_H + (Math.max(1, lines) - 1) * LINE_H;
 const COL_HEAD_H = 30;
 const FOOTER_H = 22;
 const LEGEND_LINE_H = 10;
@@ -52,15 +62,44 @@ const MAX_FILTER_LINES = 3;
 
 export const headerHeight = (filterLines: number) => BASE_HEADER_H + filterLines * FILTER_LINE_H;
 
-/** `legendLines` is how many lines the legend takes at the foot of the page; the first is already in the footer. */
-export function rowsPerPage(filterLines = 1, legendLines = 1): number {
-  const body = PAGE_H - 2 * MARGIN - headerHeight(filterLines) - COL_HEAD_H - FOOTER_H - (Math.max(1, legendLines) - 1) * LEGEND_LINE_H;
-  return Math.floor(body / ROW_H);
+/** The height on a page for rows. `legendLines` is how many lines the legend takes at the foot of the page; the first is already in the footer. */
+export function bodyRoom(paper: PaperSize, filterLines = 1, legendLines = 1): number {
+  return PAPERS[paper].h - 2 * MARGIN - headerHeight(filterLines) - COL_HEAD_H - FOOTER_H - (Math.max(1, legendLines) - 1) * LEGEND_LINE_H;
 }
 
-/** Pages needed for this many rows (at least one, so an empty result still prints its header). */
-export function estimatePages(rowCount: number, filterLines = 1): number {
-  return Math.max(1, Math.ceil(rowCount / rowsPerPage(filterLines)));
+/** How many one-line rows fit on a page. */
+export function rowsPerPage(filterLines = 1, legendLines = 1, paper: PaperSize = DEFAULT_LAYOUT.paper): number {
+  return Math.floor(bodyRoom(paper, filterLines, legendLines) / ROW_H);
+}
+
+/** Pages needed for this many one-line rows (at least one, so an empty result still prints its header). Wrapped rows can need more. */
+export function estimatePages(rowCount: number, filterLines = 1, paper: PaperSize = DEFAULT_LAYOUT.paper): number {
+  return Math.max(1, Math.ceil(rowCount / rowsPerPage(filterLines, 1, paper)));
+}
+
+/**
+ * Where each page starts: the index of its first row, given every row's height and the height a page has for rows. A row
+ * never splits across pages, and there is always at least one page.
+ */
+export function paginate(heights: ArrayLike<number>, room: number): number[] {
+  const starts = [0];
+  let used = 0;
+  for (let i = 0; i < heights.length; i++) {
+    const h = heights[i]!;
+    if (used > 0 && used + h > room + 1e-9) {
+      starts.push(i);
+      used = 0;
+    }
+    used += h;
+  }
+  return starts;
+}
+
+/** The Activity column's width given the room the longest row needs: fixed at one line, or as wide as needed up to a share of the page. */
+export function treeWidth(need: number, paperW: number, text: ActivityText): number {
+  if (text === "one-line") return TREE_W;
+  const cap = Math.max(TREE_W, Math.round(paperW * TREE_CAP_SHARE));
+  return Math.min(cap, Math.max(TREE_W, Math.ceil(need)));
 }
 
 // ---- Text ---------------------------------------------------------------------------------------------------------
@@ -174,6 +213,17 @@ const KIND_FILL = { added: C.added, removed: C.removed, modified: C.modified } a
 const KIND_ROW = { added: C.addedRow, removed: C.removedRow, modified: C.modifiedRow } as const;
 const KIND_MARK = { added: "+", removed: "-", modified: "~" } as const;
 
+/** `over` with `amount` (0 to 1) of `colour` mixed in. */
+const mixRgb = (over: RGB, colour: readonly number[], amount: number): RGB => [
+  over[0] + (colour[0]! - over[0]) * amount,
+  over[1] + (colour[1]! - over[1]) * amount,
+  over[2] + (colour[2]! - over[2]) * amount,
+];
+/** Points an activity is moved right while guides are drawn, so there is room for the elbow into it. */
+const GUIDE_GAP = 2.5;
+/** How much of its level's colour a tinted group row takes. */
+const BAND_MIX = 0.16;
+
 const fill = (d: jsPDF, c: RGB) => d.setFillColor(c[0], c[1], c[2]);
 const stroke = (d: jsPDF, c: RGB) => d.setDrawColor(c[0], c[1], c[2]);
 const ink = (d: jsPDF, c: RGB) => d.setTextColor(c[0], c[1], c[2]);
@@ -190,6 +240,92 @@ function fit(d: jsPDF, s: string, maxW: number): string {
     else hi = mid - 1;
   }
   return lo > 0 ? `${s.slice(0, lo)}...` : "";
+}
+
+/**
+ * Where each row's name starts and what else the row needs, measured, so the Activity column can be made wide enough and
+ * long names wrapped. `lead` is how far from the table's left edge the name starts (past the indent, circle or marker, and
+ * an activity's code), `tail` what must be left clear at the right (a group's count; the cell's padding), `width` the
+ * name's own width, and `need` the widest row's lead + width + tail.
+ */
+interface NameMetrics {
+  lead: Float64Array;
+  tail: Float64Array;
+  width: Float64Array;
+  need: number;
+}
+
+interface NameStyle {
+  guides: PdfGuides | null;
+  /** Points each level moves a row right. */
+  step: number;
+  /** Rows have a square for new, removed or modified in front of the code. */
+  compare: boolean;
+}
+
+/** Points kept clear to the right of a group's name, besides its count. */
+const GROUP_TAIL = 24;
+/** Room for the change square in front of an activity's code, while comparing. */
+const COMPARE_MARK_W = 10;
+/** The longest an activity's code is printed. */
+const CODE_MAX_W = 92;
+
+function measureNames(doc: jsPDF, rows: readonly Row[], o: NameStyle): NameMetrics {
+  const n = rows.length;
+  const lead = new Float64Array(n);
+  const tail = new Float64Array(n);
+  const width = new Float64Array(n);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  const markerW = o.guides ? 0 : Math.max(doc.getTextWidth("-  "), doc.getTextWidth("+  "));
+  for (let i = 0; i < n; i++) {
+    const row = rows[i]!;
+    if (row.kind !== "wbs") continue;
+    const textX = 4 + row.depth * o.step + (o.guides ? o.guides.circle + 3 : 0);
+    lead[i] = textX + markerW;
+    width[i] = doc.getTextWidth(pdfText(row.node.name));
+    tail[i] = GROUP_TAIL + doc.getTextWidth(String(row.matches ?? row.node.activityCount));
+  }
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  for (let i = 0; i < n; i++) {
+    const row = rows[i]!;
+    if (row.kind !== "task") continue;
+    const at = 4 + row.depth * o.step + (o.guides ? GUIDE_GAP : 0) + (o.compare ? COMPARE_MARK_W : 0);
+    lead[i] = at + Math.min(doc.getTextWidth(pdfText(row.task.code)), CODE_MAX_W) + 5;
+    tail[i] = 4;
+  }
+  doc.setFontSize(7.5);
+  let need = 0;
+  for (let i = 0; i < n; i++) {
+    const row = rows[i]!;
+    if (row.kind === "task") width[i] = doc.getTextWidth(pdfText(row.task.name));
+    need = Math.max(need, lead[i]! + width[i]! + tail[i]!);
+  }
+  return { lead, tail, width, need };
+}
+
+/**
+ * The names that do not fit on one line in a column `treeW` wide, broken into lines (at most MAX_NAME_LINES; the last is
+ * cut with "..." only if it still would not fit), by row index. A name that fits is not in the map.
+ */
+function wrapNames(doc: jsPDF, rows: readonly Row[], m: NameMetrics, treeW: number): Map<number, string[]> {
+  const out = new Map<number, string[]>();
+  for (const bold of [true, false]) {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(7.5);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!;
+      if ((row.kind === "wbs") !== bold) continue;
+      const avail = treeW - m.lead[i]! - m.tail[i]!;
+      if (m.width[i]! <= avail || avail < 20) continue;
+      const text = pdfText(row.kind === "wbs" ? row.node.name : row.task.name);
+      let lines = doc.splitTextToSize(text, avail) as string[];
+      if (lines.length > MAX_NAME_LINES) lines = [...lines.slice(0, MAX_NAME_LINES - 1), fit(doc, lines.slice(MAX_NAME_LINES - 1).join(" "), avail)];
+      out.set(i, lines);
+    }
+  }
+  return out;
 }
 
 /** Mixes a colour towards white, to push the activities off a traced path into the background. */
@@ -237,6 +373,10 @@ export interface PrintInput {
   compareColumns?: readonly string[];
   /** How the rows were arranged, so the sheet says so (see describeArrangement). Omit for the defaults. */
   view?: PrintView;
+  /** The level guides to draw down the left of the table (see levelGuides.ts). Omit or null for none: rows are then indented as before. */
+  guides?: PdfGuides | null;
+  /** The paper, the handling of long activity text and the bar labels (see printLayout.ts). What is omitted gets its default. */
+  layout?: Partial<PrintLayout>;
 }
 
 export interface PrintView {
@@ -244,16 +384,18 @@ export interface PrintView {
   wbsLevel: number | null;
   /** How many levels this project's WBS has. */
   levels: number;
-  sort: ActivitySort;
+  wbsSort: WbsSort;
+  activitySort: ActivitySort | null;
 }
 
-/** What differs from the defaults in how the rows are arranged, for the header: "WBS level 2 of 4", "Sorted by date". */
+/** What differs from the defaults in how the rows are arranged, for the header: "WBS level 2 of 4", "WBS sorted by date". */
 export function describeArrangement(view: PrintView | undefined): string[] {
   if (!view) return [];
   const out: string[] = [];
   if (view.wbsLevel === 0) out.push("No WBS groups");
   else if (view.wbsLevel !== null && view.wbsLevel < view.levels) out.push(`WBS level ${view.wbsLevel} of ${view.levels}`);
-  if (view.sort === "date") out.push("Sorted by date");
+  if (view.wbsSort === "date") out.push("WBS sorted by date");
+  if (view.activitySort) out.push(`Activities sorted by ${describeActivitySort(view.activitySort)}`);
   return out;
 }
 
@@ -261,6 +403,8 @@ export interface PdfOptions {
   /** Compress the page streams (smaller file). Tests turn this off so the text can be read back. */
   compress?: boolean;
   onProgress?: (pagesDone: number, pages: number) => void;
+  /** Draw only this page (counting from 0), for a preview; `pages` in the result is still the whole count. */
+  onlyPage?: number;
 }
 
 export interface PdfResult {
@@ -273,8 +417,11 @@ const yieldToBrowser = () => new Promise<void>((resolve) => setTimeout(resolve, 
 export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Promise<PdfResult> {
   const { schedule, rows, filters, matched, total } = input;
   const generatedAt = input.generatedAt ?? new Date();
+  const layout: PrintLayout = { ...DEFAULT_LAYOUT, ...input.layout };
+  const PAGE_W = PAPERS[layout.paper].w;
+  const PAGE_H = PAPERS[layout.paper].h;
   const { jsPDF: PDF } = await import("jspdf");
-  const doc = new PDF({ orientation: "landscape", unit: "pt", format: "a3", compress: options.compress ?? true });
+  const doc = new PDF({ orientation: "landscape", unit: "pt", format: layout.paper, compress: options.compress ?? true });
   const projectName = pdfText(schedule.project.name);
   doc.setProperties({ title: `${projectName} - schedule`, subject: "Schedule printed from XER Viewer", creator: "XER Viewer" });
 
@@ -309,12 +456,24 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
   // The baseline and change columns come last, and only while two programmes are being compared.
   const compareCols = compare ? COMPARE_COLUMNS.filter((c) => input.compareColumns?.includes(c.key)) : [];
   const fixedCols = FIXED_COLUMNS.filter((c) => !input.hiddenColumns?.includes(c.key));
-  const fixedW = TREE_W + fixedCols.reduce((n, c) => n + c.pdfWidth, 0);
+  const guides = input.guides ?? null;
+  const indentStep = guides?.step ?? PDF_PLAIN_INDENT_STEP;
+  // Which lines of the tree run through each row, over all pages (a group's line goes on across a page break).
+  const masks = guides ? guideMasks(rows.map((r) => r.depth)) : null;
+  // The Activity column: fixed at one line, or as wide as the longest name needs (up to a share of the page), with what
+  // still does not fit wrapped onto more lines, which makes those rows taller.
+  const wrapText = layout.text === "wrap" && rows.length > 0;
+  const metrics = wrapText ? measureNames(doc, rows, { guides, step: indentStep, compare: compare !== null }) : null;
+  const treeW = metrics ? treeWidth(metrics.need, PAGE_W, layout.text) : TREE_W;
+  const wrapped = metrics ? wrapNames(doc, rows, metrics, treeW) : new Map<number, string[]>();
+  const heights = rows.map((_, i) => rowHeight(wrapped.get(i)?.length ?? 1));
+  const fixedW = treeW + fixedCols.reduce((n, c) => n + c.pdfWidth, 0);
   const tableW = fixedW + extra.reduce((n, c) => n + c.w, 0) + compareCols.reduce((n, c) => n + c.pdf.w, 0);
   const ganttX = MARGIN + tableW;
   const ganttW = PAGE_W - MARGIN - ganttX;
   // A fixed margin in points either side of the whole months paddedRange gives, so the first and last bars aren't against the edge.
-  const ptPerDay = (ganttW - 2 * CHART_MARGIN_PT) / ((padded.end - padded.start) / DAY);
+  // (A chart squeezed to nothing by many columns on a small page is kept just wide enough to be drawn.)
+  const ptPerDay = Math.max(ganttW - 2 * CHART_MARGIN_PT, 10) / ((padded.end - padded.start) / DAY);
   const extent = { start: padded.start - (CHART_MARGIN_PT / ptPerDay) * DAY, end: padded.end + (CHART_MARGIN_PT / ptPerDay) * DAY };
   const days = (extent.end - extent.start) / DAY;
   const tl = makeTimeline(extent.start, extent.end, ganttW / days);
@@ -339,13 +498,24 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     compare: compare ? { baseline: compare.showBaseline } : null,
   });
   const legendLines = layoutLegend(doc, legend, PAGE_W - 2 * MARGIN - LEGEND_RESERVED_W);
-  const perPage = rowsPerPage(filterLines.length, legendLines.length);
-  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const starts = paginate(heights, bodyRoom(layout.paper, filterLines.length, legendLines.length));
+  const pages = starts.length;
 
+  let drawn = 0;
   for (let page = 0; page < pages; page++) {
-    if (page > 0) doc.addPage("a3", "landscape");
-    const slice = rows.slice(page * perPage, (page + 1) * perPage);
-    const bodyH = slice.length * ROW_H;
+    if (options.onlyPage !== undefined && page !== options.onlyPage) continue;
+    if (drawn++ > 0) doc.addPage(layout.paper, "landscape");
+    const from = starts[page]!;
+    const slice = rows.slice(from, starts[page + 1] ?? rows.length);
+    // Where each row of this page starts and its middle: rows are all one line tall unless a name wrapped.
+    const tops: number[] = [];
+    const mids: number[] = [];
+    let bodyH = 0;
+    slice.forEach((_, i) => {
+      tops.push(bodyTop + bodyH);
+      mids.push(bodyTop + bodyH + heights[from + i]! / 2);
+      bodyH += heights[from + i]!;
+    });
 
     // -- Header -----------------------------------------------------------------------------------------------------
     doc.setFont("helvetica", "bold");
@@ -375,7 +545,7 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
     ink(doc, C.text);
     const headY = headTop + COL_HEAD_H - 7;
     doc.text("Activity", MARGIN + 4, headY, { baseline: "middle" });
-    let x = MARGIN + TREE_W;
+    let x = MARGIN + treeW;
     for (const c of fixedCols) {
       doc.text(c.label, c.align === "right" ? x + c.pdfWidth - 4 : x + 4, headY, { align: c.align, baseline: "middle" });
       x += c.pdfWidth;
@@ -426,45 +596,93 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
 
     // -- Rows ---------------------------------------------------------------------------------------------------------
     slice.forEach((row, i) => {
-      const top = bodyTop + i * ROW_H;
-      const mid = top + ROW_H / 2;
+      const gi = from + i; // this row's place in the whole list
+      const rowH = heights[gi]!;
+      const top = tops[i]!;
+      const mid = mids[i]!;
       const onPath = trace !== null && row.kind === "task" && trace.ids.has(row.task.id);
       const offPath = dropped !== null && row.kind === "task" && dropped.ids.has(row.task.id);
       const change = compare && row.kind === "task" ? (compare.changes.get(row.task.id) ?? null) : null;
       const kind = change && change.kind !== "unchanged" ? change.kind : null;
       if (row.kind === "wbs") {
-        fill(doc, C.band);
-        doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, ROW_H, "F");
+        // A group row is shaded in its level's colour, like a grouping band, when the guides are tinted.
+        fill(doc, guides?.tint ? mixRgb(C.band, hexToRgb(colourAt(guides.colours, row.depth)), BAND_MIX) : C.band);
+        doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, rowH, "F");
       } else if (kind) {
         fill(doc, KIND_ROW[kind]);
-        doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, ROW_H, "F");
+        doc.rect(MARGIN, top, PAGE_W - 2 * MARGIN, rowH, "F");
       } else if (onPath) {
         fill(doc, C.pathRow);
-        doc.rect(MARGIN, top, tableW, ROW_H, "F");
+        doc.rect(MARGIN, top, tableW, rowH, "F");
       }
       stroke(doc, C.line);
       doc.setLineWidth(0.25);
-      doc.line(MARGIN, top + ROW_H, PAGE_W - MARGIN, top + ROW_H);
+      doc.line(MARGIN, top + rowH, PAGE_W - MARGIN, top + rowH);
 
-      const indent = MARGIN + 4 + row.depth * 7;
-      const cellRight = MARGIN + TREE_W - 4;
+      // An activity is moved a little further right when guides are drawn, so its group's line doesn't touch it.
+      const indent = MARGIN + 4 + row.depth * indentStep + (guides && row.kind === "task" ? GUIDE_GAP : 0);
+      if (guides && masks) {
+        // The tree: the line of each group above the row, the elbow into the row, and the line leaving a group's circle.
+        const lines = masks[gi]!;
+        const centre = (c: number) => MARGIN + 4 + c * guides.step + guides.circle / 2;
+        const d = row.depth;
+        doc.setLineWidth(guides.width);
+        for (let c = 0; c < d; c++) {
+          stroke(doc, hexToRgb(colourAt(guides.colours, c)));
+          const runs = ((lines >> c) & 1) === 1;
+          if (runs || c === d - 1) doc.line(centre(c), top, centre(c), runs ? top + rowH : mid);
+          if (c === d - 1) doc.line(centre(c), mid, row.kind === "wbs" ? centre(d) : indent - 1, mid);
+        }
+        if (row.kind === "wbs") {
+          const circleX = centre(d);
+          if ((lines >> d) & 1) {
+            stroke(doc, hexToRgb(colourAt(guides.colours, d)));
+            doc.line(circleX, mid, circleX, top + rowH);
+          }
+          // The circle, with the arrow that shows whether the group is open: down if it is, right if it is closed.
+          const colour = colourAt(guides.colours, d);
+          fill(doc, hexToRgb(colour));
+          doc.circle(circleX, mid, guides.circle / 2, "F");
+          const arrow = hexToRgb(inkFor(colour));
+          stroke(doc, arrow);
+          doc.setLineWidth(0.7);
+          const a = guides.circle * 0.2;
+          if (row.expanded) {
+            doc.line(circleX - a, mid - a / 2, circleX, mid + a / 2);
+            doc.line(circleX, mid + a / 2, circleX + a, mid - a / 2);
+          } else {
+            doc.line(circleX - a / 2, mid - a, circleX + a / 2, mid);
+            doc.line(circleX + a / 2, mid, circleX - a / 2, mid + a);
+          }
+        }
+        doc.setLineWidth(0.25);
+      }
+      const cellRight = MARGIN + treeW - 4;
+      // The lines of a name, centred on the row: one, unless it wrapped.
+      const lineY = (k: number, n: number) => mid + (k - (n - 1) / 2) * LINE_H;
       if (row.kind === "wbs") {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(7.5);
         ink(doc, C.text);
         const count = String(row.matches ?? row.node.activityCount);
-        const marker = row.expanded ? "-" : "+";
-        const name = fit(doc, pdfText(row.node.name), cellRight - indent - 20 - doc.getTextWidth(count));
-        const heading = `${marker}  ${name}`;
-        const headingW = doc.getTextWidth(heading); // measured in bold, which is how it is drawn
-        doc.text(heading, indent, mid, { baseline: "middle" });
+        // With the guides the circle shows whether the group is open; without them a + or - does.
+        const textX = guides ? indent + guides.circle + 3 : indent;
+        const marker = guides ? "" : row.expanded ? "-  " : "+  ";
+        const nameLines = wrapped.get(gi) ?? [fit(doc, pdfText(row.node.name), cellRight - textX - 20 - doc.getTextWidth(count))];
+        const markerW = doc.getTextWidth(marker);
+        let headingW = 0; // of the last line, in bold, which is how it is drawn
+        nameLines.forEach((line, k) => {
+          const text = k === 0 ? `${marker}${line}` : line;
+          doc.text(text, k === 0 ? textX : textX + markerW, lineY(k, nameLines.length), { baseline: "middle" });
+          headingW = doc.getTextWidth(text) + (k === 0 ? 0 : markerW);
+        });
         doc.setFont("helvetica", "normal");
         ink(doc, C.muted);
-        doc.text(count, indent + headingW + 4, mid, { baseline: "middle" });
+        doc.text(count, textX + headingW + 4, lineY(nameLines.length - 1, nameLines.length), { baseline: "middle" });
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7.5);
         ink(doc, C.text);
-        let gx = MARGIN + TREE_W;
+        let gx = MARGIN + treeW;
         for (const c of fixedCols) {
           if (c.key === "start" || c.key === "finish") doc.text(fmtDate(c.key === "start" ? row.node.start : row.node.finish), gx + 4, mid, { baseline: "middle" });
           gx += c.pdfWidth;
@@ -494,17 +712,22 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
         doc.setFontSize(7.5);
         ink(doc, kind === "removed" ? C.muted : C.text);
         const nameX = at + codeW + 5;
-        doc.text(fit(doc, pdfText(a.name), cellRight - nameX), nameX, mid, { baseline: "middle" });
-        if (kind === "removed") {
-          stroke(doc, C.muted);
-          doc.setLineWidth(0.4);
-          doc.line(nameX, mid, nameX + Math.min(doc.getTextWidth(pdfText(a.name)), cellRight - nameX), mid);
-        }
+        const nameLines = wrapped.get(gi) ?? [fit(doc, pdfText(a.name), cellRight - nameX)];
+        nameLines.forEach((line, k) => {
+          const y = lineY(k, nameLines.length);
+          doc.text(line, nameX, y, { baseline: "middle" });
+          if (kind === "removed") {
+            // Struck through, line by line.
+            stroke(doc, C.muted);
+            doc.setLineWidth(0.4);
+            doc.line(nameX, y, nameX + Math.min(doc.getTextWidth(line), cellRight - nameX), y);
+          }
+        });
 
         const was = change?.kind === "modified" ? change.before : null;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7.5);
-        let cx = MARGIN + TREE_W;
+        let cx = MARGIN + treeW;
         for (const c of fixedCols) {
           let text = "";
           let color: RGB = C.text;
@@ -536,13 +759,13 @@ export async function buildPdf(input: PrintInput, options: PdfOptions = {}): Pro
           doc.text(pdfText(cell.text.replace("−", "-")), ex + c.pdf.w - 4, mid, { align: "right", baseline: "middle" });
           ex += c.pdf.w;
         }
-        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : offPath ? "dropped" : "off", change, compare?.showBaseline ?? false);
+        drawTaskBar(doc, a, mid, ganttX, ganttW, tl.x, dataDate, trace === null ? null : onPath ? "on" : offPath ? "dropped" : "off", change, compare?.showBaseline ?? false, layout.labels);
       }
     });
 
     // -- Traced path: its links, where both ends are on this page ---------------------------------------------------------
-    if (dropped) drawPathLinks(doc, slice, dropped.links, bodyTop, ganttX, tl.x, true);
-    if (trace) drawPathLinks(doc, slice, trace.links, bodyTop, ganttX, tl.x);
+    if (dropped) drawPathLinks(doc, slice, dropped.links, mids, ganttX, tl.x, true);
+    if (trace) drawPathLinks(doc, slice, trace.links, mids, ganttX, tl.x);
 
     // -- Data date line -------------------------------------------------------------------------------------------------
     if (dataDateX !== null && slice.length > 0) {
@@ -604,7 +827,8 @@ function drawPathLinks(
   doc: jsPDF,
   slice: Row[],
   links: readonly Relationship[],
-  bodyTop: number,
+  /** The middle of each row of `slice`, down the page. */
+  mids: readonly number[],
   ganttX: number,
   x: (t: number) => number,
   /** Links that drove in the baseline and no longer do: dashed and grey. */
@@ -631,8 +855,8 @@ function drawPathLinks(
     const fx = pdfAnchor(pred, fromSide, x);
     const tx = pdfAnchor(succ, toSide, x);
     if (fx === null || tx === null) continue;
-    const from: Point = { x: ganttX + fx, y: bodyTop + rowOf.get(pred.id)! * ROW_H + ROW_H / 2 };
-    const to: Point = { x: ganttX + tx, y: bodyTop + rowOf.get(succ.id)! * ROW_H + ROW_H / 2 };
+    const from: Point = { x: ganttX + fx, y: mids[rowOf.get(pred.id)!]! };
+    const to: Point = { x: ganttX + tx, y: mids[rowOf.get(succ.id)!]! };
     const { points, arrowDir } = routeLink(from, fromSide, to, toSide, ROW_H);
     doc.lines(
       points.slice(1).map((p, i) => [p.x - points[i]!.x, p.y - points[i]!.y] as [number, number]),
@@ -662,6 +886,7 @@ function drawTaskBar(
   path: "on" | "off" | "dropped" | null,
   change: ActivityChange | null = null,
   showBaseline = false,
+  labels: BarLabels = DEFAULT_LAYOUT.labels,
 ) {
   if (a.start === null || a.finish === null) return;
   const tone = (c: RGB): RGB => (path === "off" ? fade(c) : c);
@@ -670,17 +895,34 @@ function drawTaskBar(
   ink(doc, tone(C.muted));
   // While comparing, how far a modified activity has moved goes in front of its name.
   const shift = change ? shiftDays(change, a) : 0;
-  const caption = shift !== 0 ? `${fmtShift(shift)} ${a.name}` : a.name;
-  // To the right of the bar; when that would run off the chart it goes to the left of the bar instead (as on screen).
-  const label = (from: number, leftEdge: number) => {
-    const text = pdfText(caption);
+  const prefix = shift !== 0 ? `${fmtShift(shift)} ` : "";
+  // Beside the bar: to the right, or to the left when the right has no room. Returns whether the whole text went on.
+  const placeWhole = (text: string, from: number, leftEdge: number): boolean => {
     const w = doc.getTextWidth(text);
-    if (from + 3 + w > ganttW && leftEdge - 3 - w >= 0) {
-      doc.text(text, ganttX + leftEdge - 3, mid, { align: "right", baseline: "middle" });
-      return;
+    if (from + 3 + w <= ganttW) {
+      doc.text(text, ganttX + from + 3, mid, { baseline: "middle" });
+      return true;
     }
-    const room = ganttW - from - 2;
-    if (room > 24) doc.text(fit(doc, text, room), ganttX + from + 3, mid, { baseline: "middle" });
+    if (leftEdge - 3 - w >= 0) {
+      doc.text(text, ganttX + leftEdge - 3, mid, { align: "right", baseline: "middle" });
+      return true;
+    }
+    return false;
+  };
+  const label = (from: number, leftEdge: number) => {
+    if (labels === "none") return;
+    const id = pdfText(`${prefix}${a.code}`);
+    const name = pdfText(`${prefix}${a.name}`);
+    if (labels === "id") {
+      placeWhole(id, from, leftEdge);
+    } else if (labels === "smart") {
+      // The whole name if it fits on either side, else the ID: never half a name.
+      if (!placeWhole(name, from, leftEdge)) placeWhole(id, from, leftEdge);
+    } else if (!placeWhole(name, from, leftEdge)) {
+      // The name, cut with "..." to the room to the right of the bar (if there is much).
+      const room = ganttW - from - 2;
+      if (room > 24) doc.text(fit(doc, name, room), ganttX + from + 3, mid, { baseline: "middle" });
+    }
   };
   const outlined = path === "on" || path === "dropped";
   const outline = (left: number, width: number, h: number, up = 0) => {

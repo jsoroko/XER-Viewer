@@ -32,7 +32,12 @@ the browser and never leaves your machine, so there is no backend.
     activity selected in the schedule) or **By ID** (type an activity ID or part of a name and pick from the matches;
     Enter takes the first), and a direction: **Backward** (what drives it: its driving predecessors, and theirs, back
     to where the chain starts), **Forward** (what it drives) or **Combined** (both: the whole chain through it).
-    The direction is remembered, and the activity traced from becomes the selected one and is scrolled to. A relationship *drives* when it has no relationship
+    The direction is remembered, and the activity traced from becomes the selected one and is scrolled to. While a trace is open the
+    bottom panel has tabs: **Driving trace** and, whenever an activity is selected, a second tab named after it that holds the
+    activity's details (General, Relationships, Resources, Codes), so neither hides the other. Each tab has its own **×**: the trace
+    tab closes the trace, the activity tab deselects the activity. Selecting a row doesn't switch tabs; the two share one panel height,
+    which you can drag and which is remembered. Once the height has been dragged, a **Fit** button appears beside the shown tab's ×
+    and makes the panel just as tall as that tab's content (up to most of the window) until it is dragged again. A relationship *drives* when it has no relationship
     float: the successor's date is exactly what the predecessor's date plus lag asks for. That is measured in working
     time on the predecessor's calendar (P6's default calendar for lag) from the dates already in the file, so
     calendars, lags, constraints and progress are respected, and nothing is rescheduled. Tied chains are all
@@ -94,22 +99,26 @@ the browser and never leaves your machine, so there is no backend.
     and remembered between visits, **Reset to default columns** puts them back, and the icon is highlighted while the choice
     differs from the default. Activity ID and Calendar aren't offered, since their values run too long to fit one line. A faint
     vertical line separates every column, and every header has a tooltip explaining it.
-  - **Sort order** – an icon button (A to Z for code, a calendar for date; highlighted while it is not the default) with two
-    choices. **By code** (the default) is the file's own order: WBS groups as arranged in the project,
-    activities by activity code. **By date** reorders every level instead — WBS groups by their own rolled-up
-    start date, activities by their own start date — applied recursively, so a date-sorted group's own sub-groups
-    are themselves in date order, all the way down. Items that start on the same *day* (the time of day isn't compared,
-    since the table shows only the date) go earliest finish first, then by code, so a milestone or one-day activity comes
-    before a longer one that starts with it, as when sorting by Start then Finish in P6 or MS Project; relationships
-    are not used. Remembered between visits, like Non-working and Groups; unlike
-    the WBS depth control, it does not reset for a new project.
+  - **WBS order** – an icon button (a numbered list for sequence, a calendar for date; highlighted while it is not the
+    default) with two choices, for the WBS groups only. **By sequence** (the default) is the project's own order, as in P6.
+    **By date** reorders the groups by their own rolled-up start date instead, applied at every level, so a date-sorted
+    group's own sub-groups are themselves in date order, all the way down. Groups that start on the same *day* go earliest
+    finish first, then by code. Remembered between visits, like Non-working and Groups; unlike the WBS depth control, it does
+    not reset for a new project.
+  - **Activity order** – click the **Start**, **Finish** (or, when switched on, **Act. Start** / **Act. Finish**) heading to
+    order the activities inside each group by that date: the first click goes earliest first (▲), the second latest first
+    (▼), the third back to Activity ID order. The groups stay where the WBS order puts them, as with a P6 layout that groups
+    by WBS and sorts by Start. Activities on the same *day* (the time of day isn't compared, since the table shows only the
+    date) go by the other end of the bar, earliest first, then by code, so a milestone or one-day activity comes before a
+    longer one that starts with it; activities with no such date are last in either direction. It is not remembered: the
+    highlighted heading shows it, and a new project starts in Activity ID order. Hiding the column also clears it.
   - **WBS grouping depth** – an icon button (a tree with the level on a badge, highlighted while it is not the deepest level)
     that chooses how many WBS levels get their own row (**Level 1**, **2**, … ), similar
     to P6's "Group by WBS" level setting. Activities below the chosen level are listed directly under the deepest
     group shown, with no rows for the levels folded away; group dates, activity counts and filter match counts
     still cover the whole branch. It opens as a menu below the button rather than a native dropdown, so it never
-    flips upward. The first choice, **No groups**, drops every group row and lists just the activities in one flat list (by
-    date, the whole list is sorted together), which suits a trace or search whose results are scattered. Resets to the file's deepest
+    flips upward. The first choice, **No groups**, drops every group row and lists just the activities in one flat list (sorted
+    together when a date heading is clicked), which suits a trace or search whose results are scattered. Resets to the file's deepest
     level (showing everything) for a new project.
   - **Filter builder** – the **Filters** (funnel) icon, which carries the number of conditions in use, opens a panel where you combine any number of conditions
     (*field, operator, value*) with **all** (AND) or **any** (OR). There are eleven fields, named after the P6 data
@@ -121,9 +130,21 @@ the browser and never leaves your machine, so there is no backend.
     "does not equal / contain" passes only if *none* does. Each condition is checked on its own. Conditions still
     missing a value are ignored until you fill them in, and the builder combines with the search box, the status /
     critical / milestone dropdown and the date range, which cover status and dates.
-  - **Print to PDF** – the **PDF** button makes an A3 landscape sheet of exactly what is on screen: the same rows
-    (so the search, status, date-range and filter-builder results, the sort order, the WBS depth and any collapsed
+  - **Print to PDF** – the **PDF** button opens a dialog with a preview and the choices below, and **Download PDF** makes a
+    landscape sheet of exactly what is on screen: the same rows
+    (so the search, status, date-range and filter-builder results, the WBS and activity order, the WBS depth and any collapsed
     groups), the Gantt bars fitted to the printed activities, and a header line saying which filters are applied.
+    The dialog's choices are remembered in this browser, and the preview is drawn by the same code as the download, one
+    page at a time (the arrows step through them):
+    - **Paper** – A4, A3 (the default) or A2. The text stays the same size, so a bigger sheet holds more rows, and a
+      smaller one more pages.
+    - **Activity text** – *Wrap long names* (the default) widens the Activity column to fit the longest name, up to about
+      a third of the page, and wraps anything longer onto more lines (up to three), so no name is cut; wrapped rows are
+      taller, so a page holds fewer of them. *One line each* keeps a fixed column and cuts a long name with `...`.
+    - **Bar labels** – beside each bar: *Name, or ID if it won't fit* (the default: the whole name if it fits on either
+      side of the bar, otherwise the Activity ID, never half a name), *Name* (cut with `...` when there is no room),
+      *Activity ID*, or *None*.
+
     It also carries the other view settings:
     - **Columns** – the columns that are on print, with shorter headings, so switching Orig, Rem, Start, Finish or TF off
       (or adding % Complete, Actual Start, Actual Finish or Free Float) changes the sheet too; the chart gets correspondingly
@@ -133,7 +154,10 @@ the browser and never leaves your machine, so there is no backend.
     - **Rows and chart ends** – the PDF prints the rows as listed, so **No groups** and the WBS level are honoured.
       The chart is sized to the activities printed (as Visible Activities does on screen), with a margin at each end,
       and a label that would run off the right edge moves to the left of its bar. The header line also says when the
-      WBS level is shallower than the whole tree ("WBS level 2 of 4", "No WBS groups") or the rows are sorted by date.
+      WBS level is shallower than the whole tree ("WBS level 2 of 4", "No WBS groups"), the groups are sorted by date ("WBS sorted
+      by date") or the activities are ("Activities sorted by Start, earliest first").
+    - **Level guides** – with **Print in the PDF** on (the default), the coloured circles, lines and elbows, the indent and
+      the group tint print as they look on screen, apart from the bold line for the selected group.
     - **Legend** – the key at the foot of each page is built from the same list as the **Legend** button, in the same
       groups, and lists only what is on that sheet (the row markers only while comparing, the trace only while one is
       showing). It runs to a second line when it needs one, and the page holds fewer rows to make room.
@@ -150,10 +174,26 @@ the browser and never leaves your machine, so there is no backend.
 - **Calendars** – the Overview lists the calendars the project uses (work week, hours/day, holidays, activity
   count); activity details show the calendar's work week and the number of working days the activity spans.
 - **Tables** – browse every raw table in the file with search, column sorting and CSV export.
-- **Themes** – the palette button in the top bar opens **Appearance**: choose **Light** or **Dark**, and one of five
-  colour themes (Clean, Graphite, Midnight, Sand, Sage). Both choices are remembered in this browser; with nothing
-  saved the app follows your system's light / dark setting. Status colours (complete, critical, actual and remaining
-  bars) are the same in every theme so they always mean the same thing. The PDF is always printed on white.
+- **Settings** – the cog in the top bar opens a panel with two parts, one open at a time; each heading says what is set.
+  - **Appearance** – choose **Light** or **Dark**, and one of five colour themes (Clean, Graphite, Midnight, Sand, Sage).
+    Both choices are remembered in this browser; with nothing saved the app follows your system's light / dark setting.
+    Status colours (complete, critical, actual and remaining bars) are the same in every theme so they always mean the same
+    thing. The PDF is always printed on white.
+  - **Level guides** – the WBS drawn as a tree down the left of the table, so you can see which group every row is
+    under. Each group is a coloured circle with its expand arrow inside (click it to open or close the group, Shift-click
+    to open everything in it); a line in the circle's colour runs down from it, and each row inside the group branches off
+    that line with an elbow, the last one ending the line. Each level has its own colour, shown as its colour code on that
+    colour; click it to pick a swatch or type any code (`#3B82F6`, `3b82f6` or `#38f`). The colours start again from the
+    first when the levels outnumber them: **Number of colours** is 2 to 8 (6 by default), and the presets (**Vivid**,
+    **Muted**, **Pastel**, **Greys**) set them in one click. Green, amber and red are left out of the default because they
+    mark new, modified and removed activities. **Thickness** (thin, medium, thick) sets the width of the lines and **Size**
+    (compact, 12-pixel circles 14 pixels apart, or normal, 16 and 22) the circles and the indent of each level.
+    **Tint group rows** also shades each group row in its level's colour, like a P6 grouping band (off by default). While
+    a group, or an activity in it, is selected, its lines are drawn bolder. Point at any line or elbow to see the route
+    to its group (`Riverside › Pre-Construction › Site Works (6)`, each level in its colour, the last four levels when
+    there are more) while that group's lines are drawn bold. **Show guides in the table** turns it all off,
+    which brings back the plain arrow and the normal indent; **Print in the PDF** draws the tree (and tint) on the sheet;
+    **Reset to defaults** puts everything back. Remembered in this browser.
 - Multi-project files (project picker), drag-and-drop anywhere, UTF-8 and Windows-1252 files.
 - **Remembers your last file** – reopened automatically on your next visit. It's stored in this browser only
   (IndexedDB, so large files are fine); **Close** forgets it. The bundled sample is never remembered. If the file
@@ -204,8 +244,9 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/links.ts` | Orthogonal routing for the dependency lines (and the traced path's links) |
 | `src/lib/drivingPath.ts`, `activityLookup.ts`, `traceCsv.ts` | Driving-logic tracing (backward / forward / combined), its step list and CSV |
 | `src/lib/version.ts`, `appVersion.ts`, `scripts/release.ts` | Version numbering, the version and build date shown on the start screen, the release command |
-| `src/lib/themes.ts`, `src/components/ThemeMenu.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance menu |
-| `src/lib/printPdf.ts` | A3-landscape PDF export (jsPDF, lazy-loaded), pagination, filter summary, extra columns, shading, traced path, compared programmes |
+| `src/lib/themes.ts`, `src/components/AppearanceSettings.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance part of Settings |
+| `src/lib/levelGuides.ts`, `state/useLevelGuides.ts`, `components/SettingsMenu.tsx`, `LevelGuidesSettings.tsx` | The level guides' settings, colours and presets, and the cog panel that holds them and Appearance |
+| `src/lib/printPdf.ts`, `printLayout.ts`, `state/usePrintLayout.ts`, `components/PrintDialog.tsx` | PDF export (jsPDF, lazy-loaded): paper sizes, wrapped names and row-height pagination, bar labels, filter summary, extra columns, shading, traced path, compared programmes; the choices and the preview dialog |
 | `src/lib/compare.ts`, `compareTrace.ts`, `compareColumns.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; tracing both and marking joined / dropped steps; loading the second file |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file and the five most recent; load / restore / close flow |
 | `src/components/` | Overview, Schedule (table + Gantt), ActivityDetails, TraceMenu / TracePanel, CompareMenu / CompareBar, TablesView |

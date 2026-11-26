@@ -155,3 +155,49 @@ export function InfoTip({ label, align = "left", children }: { label: string; al
     </>
   );
 }
+
+/**
+ * A few choices side by side, one picked, like a row of radio buttons. The label is to the left of them, or above them
+ * when `stacked`, which also lets them share the width.
+ */
+export function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  stacked = false,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ id: T; label: string }>;
+  onChange: (v: T) => void;
+  stacked?: boolean;
+}) {
+  return (
+    <div className={`py-0.5 text-xs text-slate-600 dark:text-slate-400 ${stacked ? "" : "flex items-center justify-between gap-3"}`}>
+      <span id={`seg-${label}`} className={stacked ? "mb-1 block" : ""}>
+        {label}
+      </span>
+      <div role="radiogroup" aria-labelledby={`seg-${label}`} className={`overflow-hidden rounded-md border border-slate-300 dark:border-slate-600 ${stacked ? "flex" : "inline-flex"}`}>
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={value === o.id}
+            onClick={() => onChange(o.id)}
+            className={
+              `border-l border-slate-300 px-2.5 py-0.5 first:border-l-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/40 dark:border-slate-600 ${stacked ? "flex-1 py-1" : ""} ` +
+              (value === o.id
+                ? "bg-accent-50 text-accent-700 dark:bg-accent-950 dark:text-accent-300"
+                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")
+            }
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+

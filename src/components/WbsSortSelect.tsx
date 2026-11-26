@@ -1,18 +1,18 @@
 import { useRef, useState } from "react";
-import type { ActivitySort } from "../lib/scheduleRows";
 import type { IconType } from "react-icons";
-import { LuArrowDownAZ, LuCalendarArrowDown } from "react-icons/lu";
+import { LuCalendarArrowDown, LuListOrdered } from "react-icons/lu";
+import type { WbsSort } from "../lib/scheduleRows";
 import { iconToggleClass } from "./ui";
 import { useDismiss } from "./useDismiss";
 
 interface Props {
-  value: ActivitySort;
-  onChange: (sort: ActivitySort) => void;
+  value: WbsSort;
+  onChange: (sort: WbsSort) => void;
 }
 
-const OPTIONS: Array<{ id: ActivitySort; label: string; hint: string; Icon: IconType }> = [
-  { id: "code", label: "By code", Icon: LuArrowDownAZ, hint: "The file's own order: WBS groups as arranged in the project, activities by activity code" },
-  { id: "date", label: "By date", Icon: LuCalendarArrowDown, hint: "Every level reordered by its own start date instead — WBS groups and activities alike, all the way down" },
+const OPTIONS: Array<{ id: WbsSort; label: string; hint: string; Icon: IconType }> = [
+  { id: "sequence", label: "By sequence", Icon: LuListOrdered, hint: "The project's own order, as in P6: WBS groups in the sequence they were built in" },
+  { id: "date", label: "By date", Icon: LuCalendarArrowDown, hint: "WBS groups reordered by their own start date, at every level" },
 ];
 
 const optionClass = (on: boolean) =>
@@ -22,12 +22,12 @@ const optionClass = (on: boolean) =>
     : "text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800");
 
 /**
- * Chooses how siblings are ordered at every level of the WBS tree — the file's own order, or every level
- * reordered by its own start date (see `ActivitySort` in scheduleRows.ts). An icon button, like the others in the
- * toolbar: the icon shows the order in use (A to Z for code, a calendar for date), and the button is highlighted
- * while it is not the file's own order. Opens as a menu below it, so it always opens downward.
+ * Chooses how the WBS groups are ordered at every level of the tree: the project's own sequence, or by start date (see
+ * `WbsSort` in scheduleRows.ts). Only the groups: the activities inside them are ordered by clicking a date column's
+ * heading. An icon button, like the others in the toolbar: the icon shows the order in use, and the button is highlighted
+ * while it is not the project's own sequence. Opens as a menu below it, so it always opens downward.
  */
-export function ActivitySortSelect({ value, onChange }: Props) {
+export function WbsSortSelect({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const current = OPTIONS.find((o) => o.id === value)!;
@@ -38,12 +38,12 @@ export function ActivitySortSelect({ value, onChange }: Props) {
     <div ref={box} className="relative">
       <button
         type="button"
-        className={iconToggleClass(value !== "code" || open)}
+        className={iconToggleClass(value !== "sequence" || open)}
         aria-haspopup="true"
         aria-expanded={open}
-        aria-label={`Sort order: ${current.label}`}
+        aria-label={`WBS order: ${current.label}`}
         onClick={() => setOpen((v) => !v)}
-        title={`Sort order: ${current.label}. ${current.hint}`}
+        title={`WBS order: ${current.label}. ${current.hint}. Click a date column's heading to order the activities`}
       >
         <current.Icon size={18} aria-hidden />
       </button>
@@ -51,9 +51,10 @@ export function ActivitySortSelect({ value, onChange }: Props) {
       {open && (
         <div
           role="radiogroup"
-          aria-label="Sort order"
+          aria-label="WBS order"
           className="absolute left-0 top-full z-50 mt-1 w-max min-w-full space-y-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
+          <p className="px-2.5 pb-1 pt-0.5 text-[11px] text-slate-500 dark:text-slate-400">WBS groups</p>
           {OPTIONS.map((o) => (
             <button
               key={o.id}

@@ -3,7 +3,7 @@ import { fmtBytes } from "../lib/format";
 import type { Project } from "../lib/xer/model";
 import type { Mode, PaletteId } from "../lib/themes";
 import logo from "../favicon.svg";
-import { ThemeMenu } from "./ThemeMenu";
+import { SettingsMenu } from "./SettingsMenu";
 import { buttonClass, inputClass } from "./ui";
 
 export type Tab = "overview" | "schedule" | "tables";
@@ -92,7 +92,7 @@ export function TopBar(p: Props) {
         <button type="button" className={buttonClass} onClick={p.onClose} title="Close this file and forget it in this browser">
           Close
         </button>
-        <ThemeMenu palette={p.palette} mode={p.mode} onPalette={p.onPalette} onMode={p.onMode} />
+        <SettingsMenu palette={p.palette} mode={p.mode} onPalette={p.onPalette} onMode={p.onMode} />
         <input
           ref={input}
           type="file"

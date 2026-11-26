@@ -12,7 +12,9 @@ import {
   makePredicate,
   matchesDateRange,
   maxWbsDepth,
+  nextActivitySort,
   toDateRange,
+  type ActivitySort,
 } from "./scheduleRows";
 import { buildSchedule, listProjects, type Activity, type WbsNode } from "./xer/model";
 import { parseXer } from "./xer/parse";
@@ -23,6 +25,7 @@ const d = (y: number, m: number, day: number, h = 0) => new Date(y, m - 1, day, 
 const act = (start: number | null, finish: number | null) => ({ start, finish }) as Activity;
 /** A bare-bones WBS node for testing tree-shape helpers in isolation, without a whole schedule. */
 const wbsNode = (children: WbsNode[] = [], activities: Activity[] = []) => ({ children, activities }) as WbsNode;
+const START_ASC: ActivitySort = { field: "start", dir: "asc" };
 
 describe("toDateRange", () => {
   test("is null with no dates, whole-day inclusive otherwise", () => {
@@ -323,14 +326,14 @@ describe("buildRows with no groups (depth 0)", () => {
   });
 
   test("by date, the whole list is in start-date order across groups", () => {
-    const rows = tasks(buildRows(schedule.roots, new Set(), null, 0, "date")) as Array<{ task: { start: number | null } }>;
+    const rows = tasks(buildRows(schedule.roots, new Set(), null, 0, "sequence", START_ASC)) as Array<{ task: { start: number | null } }>;
     // By day: within one day the order is decided by finish and code, not by the hour the activity starts.
     const days = rows.map((r) => (r.task.start === null ? Infinity : new Date(new Date(r.task.start).toDateString()).getTime()));
     expect(days.every((k, i) => i === 0 || days[i - 1]! <= k)).toBe(true);
   });
 });
 
-describe("buildRows sorted by date", () => {
+describe("buildRows with the WBS groups sorted by date, or the activities by a date column", () => {
   const xer = parseXer(sampleText);
   const schedule = buildSchedule(xer, listProjects(xer)[0]!.id);
   const node = (name: string) => [...schedule.wbs.values()].find((n) => n.name === name)!;
@@ -342,9 +345,9 @@ describe("buildRows sorted by date", () => {
     return keys.every((k, i) => i === 0 || keys[i - 1]! <= k);
   };
 
-  test("with no sort argument, or \"code\", behaviour is exactly as before (the file's own order)", () => {
+  test("with no sort argument, or the default ones, behaviour is exactly as before (the file's own order)", () => {
     const noArg = buildRows(schedule.roots, new Set(), null);
-    expect(buildRows(schedule.roots, new Set(), null, null, "code")).toEqual(noArg);
+    expect(buildRows(schedule.roots, new Set(), null, null, "sequence", null)).toEqual(noArg);
     // Structure's own children are seq-ordered, not date-ordered: Superstructure starts after Foundations but
     // Foundations (the earlier one) is seq'd first either way, so this alone wouldn't catch a broken default —
     // the equality check above, against the pre-existing (already extensively tested) unsorted behaviour, does.
@@ -372,7 +375,7 @@ describe("buildRows sorted by date", () => {
   });
 
   test("activities within a group are reordered by their own start date, not by activity code", () => {
-    const rows = buildRows(schedule.roots, new Set(), null, null, "date");
+    const rows = buildRows(schedule.roots, new Set(), null, null, "sequence", START_ASC);
     const procurement = node("Permits & Procurement");
     const at = rows.findIndex((r) => r.kind === "wbs" && r.node.id === procurement.id);
     const tasks = taskRows(rows.slice(at + 1)).filter((r) => r.task.wbsId === procurement.id);
@@ -385,7 +388,7 @@ describe("buildRows sorted by date", () => {
   });
 
   test("combined with a WBS depth limit, the flattened activities are sorted as one list, not per sub-group then concatenated", () => {
-    const rows = buildRows(schedule.roots, new Set(), null, 2, "date");
+    const rows = buildRows(schedule.roots, new Set(), null, 2, "sequence", START_ASC);
     const structureAt = rows.findIndex((r) => r.kind === "wbs" && r.node.id === node("Structure").id);
     const nextGroup = rows.findIndex((r, i) => i > structureAt && r.kind === "wbs");
     const flattened = taskRows(rows.slice(structureAt + 1, nextGroup === -1 ? undefined : nextGroup));
@@ -404,7 +407,7 @@ describe("buildRows sorted by date", () => {
 
   test("filtering and date sorting combine: only matches are shown, still in date order, with correct counts", () => {
     const predicate = makePredicate("all", "curtain")!; // PR1020, EN1010, EN1020
-    const rows = buildRows(schedule.roots, new Set(), predicate, null, "date");
+    const rows = buildRows(schedule.roots, new Set(), predicate, null, "sequence", START_ASC);
     const tasks = taskRows(rows);
     expect(tasks.map((r) => r.task.code).sort()).toEqual(["EN1010", "EN1020", "PR1020"]);
     expect(isDateOrdered(tasks.map((r) => r.task))).toBe(true);
@@ -490,7 +493,7 @@ describe("sorting by date: activities that start on the same day", () => {
     ({ id: code, code, name: code, start, finish, type: "task" }) as unknown as Activity;
   const group = (activities: Activity[]) => ({ id: "g", code: "G", children: [], activities, start: null, finish: null }) as unknown as WbsNode;
   const order = (activities: Activity[], depth: number | null = null) =>
-    buildRows([group(activities)], new Set(), null, depth, "date")
+    buildRows([group(activities)], new Set(), null, depth, "sequence", START_ASC)
       .filter((r) => r.kind === "task")
       .map((r) => (r as { task: Activity }).task.code);
 
@@ -538,5 +541,82 @@ describe("sorting by date: activities that start on the same day", () => {
     const g = (id: string, code: string, finish: number) => ({ id, code, children: [], activities: [], start: hour(26, 8), finish }) as unknown as WbsNode;
     const rows = buildRows([g("long", "A", hour(30, 8)), g("short", "Z", hour(27, 8))], new Set(), null, null, "date");
     expect(rows.map((r) => (r as { node: { id: string } }).node.id)).toEqual(["short", "long"]);
+  });
+});
+
+describe("the WBS order and the activity order are independent", () => {
+  const hour = (day: number, h: number) => new Date(2026, 10, day, h).getTime();
+  const task = (code: string, start: number | null, finish: number | null, over: Partial<Activity> = {}) =>
+    ({ id: code, code, name: code, start, finish, actualStart: null, actualFinish: null, type: "task", ...over }) as unknown as Activity;
+  const group = (id: string, code: string, activities: Activity[], start: number | null = null) =>
+    ({ id, code, children: [], activities, start, finish: null }) as unknown as WbsNode;
+  // Design is first in the file but starts later than Construction.
+  const design = group("design", "D", [task("A1010", hour(15, 8), hour(18, 8)), task("A1020", hour(10, 8), hour(12, 8)), task("A1030", hour(12, 8), hour(16, 8))], hour(10, 8));
+  const construction = group("construction", "C", [task("C1010", hour(20, 8), hour(30, 8)), task("C1020", hour(2, 8), hour(14, 8))], hour(2, 8));
+  const roots = [design, construction];
+  const layout = (rows: ReturnType<typeof buildRows>) =>
+    rows.map((r) => (r.kind === "wbs" ? `[${r.node.id}]` : r.task.code));
+
+  test("by default the groups are in sequence and the activities by Activity ID", () => {
+    expect(layout(buildRows(roots, new Set(), null))).toEqual(["[design]", "A1010", "A1020", "A1030", "[construction]", "C1010", "C1020"]);
+  });
+
+  test("sorting the activities by Start leaves the groups where the WBS sequence puts them", () => {
+    expect(layout(buildRows(roots, new Set(), null, null, "sequence", START_ASC))).toEqual([
+      "[design]", "A1020", "A1030", "A1010", "[construction]", "C1020", "C1010",
+    ]);
+  });
+
+  test("sorting the groups by date leaves the activities in Activity ID order", () => {
+    expect(layout(buildRows(roots, new Set(), null, null, "date", null))).toEqual(["[construction]", "C1010", "C1020", "[design]", "A1010", "A1020", "A1030"]);
+  });
+
+  test("both together: groups by date, and activities by Start", () => {
+    expect(layout(buildRows(roots, new Set(), null, null, "date", START_ASC))).toEqual([
+      "[construction]", "C1020", "C1010", "[design]", "A1020", "A1030", "A1010",
+    ]);
+  });
+
+  test("latest first reverses the order of the dates, and the groups don't move", () => {
+    expect(layout(buildRows(roots, new Set(), null, null, "sequence", { field: "start", dir: "desc" }))).toEqual([
+      "[design]", "A1010", "A1030", "A1020", "[construction]", "C1010", "C1020",
+    ]);
+  });
+
+  test("Finish orders by the finish date, with the start breaking a tie", () => {
+    const g = group("g", "G", [task("X", hour(5, 8), hour(20, 8)), task("Y", hour(3, 8), hour(20, 8)), task("Z", hour(9, 8), hour(10, 8))]);
+    expect(layout(buildRows([g], new Set(), null, null, "sequence", { field: "finish", dir: "asc" }))).toEqual(["[g]", "Z", "Y", "X"]);
+    expect(layout(buildRows([g], new Set(), null, null, "sequence", { field: "finish", dir: "desc" }))).toEqual(["[g]", "Y", "X", "Z"]);
+  });
+
+  test("actual dates can be sorted by too, and an activity with none goes last in either direction", () => {
+    const g = group("g", "G", [
+      task("N", hour(1, 8), hour(2, 8)),
+      task("B", hour(1, 8), hour(2, 8), { actualStart: hour(9, 8) }),
+      task("A", hour(1, 8), hour(2, 8), { actualStart: hour(4, 8) }),
+    ]);
+    expect(layout(buildRows([g], new Set(), null, null, "sequence", { field: "actualStart", dir: "asc" }))).toEqual(["[g]", "A", "B", "N"]);
+    expect(layout(buildRows([g], new Set(), null, null, "sequence", { field: "actualStart", dir: "desc" }))).toEqual(["[g]", "B", "A", "N"]);
+  });
+
+  test("with no groups, the whole list is sorted together; without a sort it follows the group order chosen", () => {
+    expect(layout(buildRows(roots, new Set(), null, 0, "sequence", START_ASC))).toEqual(["C1020", "A1020", "A1030", "A1010", "C1010"]);
+    expect(layout(buildRows(roots, new Set(), null, 0, "date", null))).toEqual(["C1010", "C1020", "A1010", "A1020", "A1030"]);
+  });
+
+  test("the sort applies to what the filter leaves, and the groups keep their own counts", () => {
+    const predicate = (a: Activity) => a.code !== "A1030";
+    const rows = buildRows(roots, new Set(), predicate, null, "sequence", START_ASC);
+    expect(layout(rows)).toEqual(["[design]", "A1020", "A1010", "[construction]", "C1020", "C1010"]);
+    expect(rows[0]).toMatchObject({ kind: "wbs", matches: 2 });
+  });
+
+  test("clicking a heading goes earliest first, then latest first, then off; another column starts over", () => {
+    const start = nextActivitySort(null, "start");
+    expect(start).toEqual({ field: "start", dir: "asc" });
+    const desc = nextActivitySort(start, "start");
+    expect(desc).toEqual({ field: "start", dir: "desc" });
+    expect(nextActivitySort(desc, "start")).toBeNull();
+    expect(nextActivitySort(desc, "finish")).toEqual({ field: "finish", dir: "asc" });
   });
 });

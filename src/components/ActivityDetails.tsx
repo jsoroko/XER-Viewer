@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
-import { lockTextSelection } from "../lib/dragSelect";
+import { useState, type ReactNode } from "react";
 import { fmtDateTime, fmtDays, fmtMoney, fmtNumber } from "../lib/format";
 import { holidayCount, summarizeWeek, workingDaysBetween } from "../lib/xer/calendar";
 import { isMilestone, wbsPath, type Activity, type Relationship, type Schedule } from "../lib/xer/model";
@@ -12,7 +11,7 @@ import {
 } from "../lib/xer/values";
 import { CHANGE_MARK, CHANGE_SOLID, CHANGE_TINT, CHANGE_WORD } from "./compareStyle";
 import { StatusBadge } from "./ui";
-import { usePersistedNumber } from "../state/usePersistedNumber";
+import { useHeightResize } from "./useHeightResize";
 
 interface Props {
   schedule: Schedule;
@@ -21,13 +20,14 @@ interface Props {
   change?: { kind: "added" | "removed" | "modified"; lines: string[] } | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /**
+   * Shown inside the bottom panel's Activity tab, which supplies the border, height, resize strip, name and close button:
+   * only the tabs of the details and what is under them are drawn.
+   */
+  embedded?: boolean;
 }
 
 type DetailTab = "general" | "relationships" | "resources" | "codes";
-
-/** h-72, the panel's original fixed height, kept as the default so existing visitors see no change. */
-const DEFAULT_DETAIL_H = 288;
-const MIN_DETAIL_H = 160;
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -194,32 +194,10 @@ function RelationshipTable({
   );
 }
 
-export function ActivityDetails({ schedule, activity: a, change, onSelect, onClose }: Props) {
+export function ActivityDetails({ schedule, activity: a, change, onSelect, onClose, embedded = false }: Props) {
   const [tab, setTab] = useState<DetailTab>("general");
   // Remembered across visits and across activities, like the table's own width.
-  const [height, setHeight] = usePersistedNumber("xerview-detail-height", DEFAULT_DETAIL_H);
-  const drag = useRef<{ y: number; h: number } | null>(null);
-  const unlockSelection = useRef<(() => void) | null>(null);
-  // If the panel goes away in the middle of a drag, text selection must not stay switched off.
-  useEffect(() => () => unlockSelection.current?.(), []);
-
-  const onResizeDown = (e: PointerEvent<HTMLDivElement>) => {
-    e.preventDefault(); // otherwise the press starts a text selection that the drag then extends
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { y: e.clientY, h: height };
-    unlockSelection.current ??= lockTextSelection();
-  };
-  const onResizeMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
-    const max = Math.max(MIN_DETAIL_H, window.innerHeight * 0.7);
-    // Dragging the top edge up should grow the panel, so the delta is start Y minus current Y, not the other way round.
-    setHeight(Math.min(max, Math.max(MIN_DETAIL_H, drag.current.h + (drag.current.y - e.clientY))));
-  };
-  const onResizeUp = () => {
-    drag.current = null;
-    unlockSelection.current?.();
-    unlockSelection.current = null;
-  };
+  const { height, separator } = useHeightResize();
   const preds = schedule.predecessors.get(a.id) ?? [];
   const succs = schedule.successors.get(a.id) ?? [];
   const assigns = schedule.assignments.get(a.id) ?? [];
@@ -236,23 +214,27 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
     assigns.reduce((n, x) => n + (pick(x) ?? 0), 0);
 
   return (
-    <div className="relative flex shrink-0 flex-col border-t border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900" style={{ height }}>
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize activity details"
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeUp}
-        onPointerCancel={onResizeUp}
-        className="absolute inset-x-0 top-0 h-1.5 -translate-y-1/2 cursor-row-resize touch-none hover:bg-accent-500/40"
-      />
-      <div className="flex items-center gap-1 border-b border-slate-200 px-3 dark:border-slate-800">
-        <div className="mr-3 flex min-w-0 items-baseline gap-2 py-2">
-          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{a.code}</span>
-          <span className="truncate text-sm font-medium">{a.name}</span>
-        </div>
-        <div role="tablist" className="ml-auto flex">
+    <div
+      className={embedded ? "flex min-h-0 flex-1 flex-col" : "relative flex shrink-0 flex-col border-t border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"}
+      style={embedded ? undefined : { height }}
+    >
+      {!embedded && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize activity details"
+          {...separator}
+          className="absolute inset-x-0 top-0 h-1.5 -translate-y-1/2 cursor-row-resize touch-none hover:bg-accent-500/40"
+        />
+      )}
+      <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 px-3 dark:border-slate-800">
+        {!embedded && (
+          <div className="mr-3 flex min-w-0 items-baseline gap-2 py-2">
+            <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{a.code}</span>
+            <span className="truncate text-sm font-medium">{a.name}</span>
+          </div>
+        )}
+        <div role="tablist" className={embedded ? "flex" : "ml-auto flex"}>
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -270,17 +252,19 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close details"
-          className="ml-2 rounded px-2 py-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-800"
-        >
-          ✕
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close details"
+            className="ml-2 rounded px-2 py-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-800"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto pb-3">
         {change && (
           <div className={`flex gap-3 border-b px-4 py-2 text-sm ${CHANGE_TINT[change.kind]} border-slate-200 dark:border-slate-800`}>
             <span

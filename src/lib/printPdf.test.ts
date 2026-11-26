@@ -1,19 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { compileFilter, EMPTY_FILTER, newCondition } from "./advancedFilter";
 import {
+  bodyRoom,
   buildPdf,
   describeArrangement,
   describeFilters,
   estimatePages,
+  LINE_H,
+  paginate,
   pdfText,
   printedSpan,
+  rowHeight,
   rowsPerPage,
   safeFileName,
+  treeWidth,
   type FilterState,
   type PrintInput,
 } from "./printPdf";
 import { classify, DEFAULT_FIELDS, matchSchedules } from "./compare";
 import { traceDriving } from "./drivingPath";
+import { DEFAULT_GUIDES, pdfGuides } from "./levelGuides";
+import { PAPERS, type PrintLayout } from "./printLayout";
 import { buildRows, makePredicate, type Row } from "./scheduleRows";
 import { buildSchedule, listProjects } from "./xer/model";
 import { parseXer } from "./xer/parse";
@@ -562,21 +569,221 @@ describe("the legend of a plain print", () => {
 describe("how the rows were arranged", () => {
   test("says nothing for the defaults", () => {
     expect(describeArrangement(undefined)).toEqual([]);
-    expect(describeArrangement({ wbsLevel: null, levels: 4, sort: "code" })).toEqual([]);
-    expect(describeArrangement({ wbsLevel: 4, levels: 4, sort: "code" })).toEqual([]); // the deepest level is the whole tree
+    expect(describeArrangement({ wbsLevel: null, levels: 4, wbsSort: "sequence", activitySort: null })).toEqual([]);
+    expect(describeArrangement({ wbsLevel: 4, levels: 4, wbsSort: "sequence", activitySort: null })).toEqual([]); // the deepest level is the whole tree
   });
 
-  test("names a shallower WBS level, no groups, and sorting by date", () => {
-    expect(describeArrangement({ wbsLevel: 2, levels: 4, sort: "code" })).toEqual(["WBS level 2 of 4"]);
-    expect(describeArrangement({ wbsLevel: 0, levels: 4, sort: "code" })).toEqual(["No WBS groups"]);
-    expect(describeArrangement({ wbsLevel: 2, levels: 4, sort: "date" })).toEqual(["WBS level 2 of 4", "Sorted by date"]);
+  test("names a shallower WBS level, no groups, and how the groups and the activities are sorted", () => {
+    expect(describeArrangement({ wbsLevel: 2, levels: 4, wbsSort: "sequence", activitySort: null })).toEqual(["WBS level 2 of 4"]);
+    expect(describeArrangement({ wbsLevel: 0, levels: 4, wbsSort: "sequence", activitySort: null })).toEqual(["No WBS groups"]);
+    expect(describeArrangement({ wbsLevel: 2, levels: 4, wbsSort: "date", activitySort: null })).toEqual(["WBS level 2 of 4", "WBS sorted by date"]);
+    expect(describeArrangement({ wbsLevel: null, levels: 4, wbsSort: "sequence", activitySort: { field: "start", dir: "asc" } })).toEqual([
+      "Activities sorted by Start, earliest first",
+    ]);
+    expect(describeArrangement({ wbsLevel: null, levels: 4, wbsSort: "date", activitySort: { field: "finish", dir: "desc" } })).toEqual([
+      "WBS sorted by date",
+      "Activities sorted by Finish, latest first",
+    ]);
   });
 
   test("is in the header of the page", async () => {
     const { blob } = await buildPdf(
-      { schedule, rows: allRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), view: { wbsLevel: 1, levels: 3, sort: "date" } },
+      { schedule, rows: allRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), view: { wbsLevel: 1, levels: 3, wbsSort: "date", activitySort: { field: "start", dir: "asc" } } },
       { compress: false },
     );
-    expect(shown(pdfString(await blob.arrayBuffer())).some((l) => l.includes("WBS level 1 of 3") && l.includes("Sorted by date"))).toBe(true);
+    expect(shown(pdfString(await blob.arrayBuffer())).some((l) => l.includes("WBS level 1 of 3") && l.includes("WBS sorted by date") && l.includes("Activities sorted by Start, earliest first"))).toBe(true);
+  });
+});
+
+describe("level guides on the sheet", () => {
+  const render = async (guides: ReturnType<typeof pdfGuides>) => {
+    const { blob } = await buildPdf({ schedule, rows: allRows, filters: noFilters, matched: 56, total: 56, generatedAt: new Date(2026, 8, 21, 14, 5), guides }, { compress: false });
+    return pdfString(await blob.arrayBuffer());
+  };
+  // The first three default colours (#3B82F6, #D946EF, #06B6D4) as jsPDF writes a stroke colour.
+  const LEVEL_STROKES = ["0.23 0.51 0.96 RG", "0.85 0.27 0.94 RG", "0.02 0.71 0.83 RG"];
+
+  test("without guides none of the level colours is drawn", async () => {
+    const text = await render(null);
+    for (const c of LEVEL_STROKES) expect(text).not.toContain(c);
+  });
+
+  test("with guides each level has its own colour, one line down every row below it", async () => {
+    const text = await render(pdfGuides(DEFAULT_GUIDES));
+    for (const c of LEVEL_STROKES) expect(text).toContain(c);
+  });
+
+  test("tinting the group rows changes the sheet, and printing can be switched off", async () => {
+    const plain = await render(pdfGuides(DEFAULT_GUIDES));
+    expect(await render(pdfGuides({ ...DEFAULT_GUIDES, tint: true }))).not.toBe(plain);
+    expect(pdfGuides({ ...DEFAULT_GUIDES, print: false })).toBeNull();
+  });
+
+  test("the guides' indent moves the names: tight sits to the left of normal", async () => {
+    const xOf = (text: string) => {
+      const m = text.match(/([\d.]+) [\d.]+ Td\n\(\+?-?\s*Foundations\)/) ?? text.match(/([\d.]+) [\d.]+ Td\s*\(-  Foundations\) Tj/);
+      return m ? Number(m[1]) : null;
+    };
+    const tight = xOf(await render(pdfGuides(DEFAULT_GUIDES)));
+    const normal = xOf(await render(pdfGuides({ ...DEFAULT_GUIDES, indent: "normal" })));
+    expect(tight).not.toBeNull();
+    expect(normal).not.toBeNull();
+    expect(tight!).toBeLessThan(normal!);
+  });
+});
+
+describe("paper sizes", () => {
+  const sizeOf = (text: string) => {
+    const m = text.match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/)!;
+    return [Number(m[1]), Number(m[2])] as const;
+  };
+  const renderWith = async (layout: Partial<PrintLayout>, rows: Row[] = allRows) => {
+    const { blob, pages } = await buildPdf(
+      { schedule, rows, filters: noFilters, matched: schedule.activities.length, total: schedule.activities.length, generatedAt: new Date(2026, 8, 21), layout },
+      { compress: false },
+    );
+    return { text: pdfString(await blob.arrayBuffer()), pages };
+  };
+
+  test("each paper makes a page of its own size, landscape", async () => {
+    for (const p of ["a4", "a3", "a2"] as const) {
+      const [w, h] = sizeOf((await renderWith({ paper: p })).text);
+      expect(w).toBeCloseTo(PAPERS[p].w, 1);
+      expect(h).toBeCloseTo(PAPERS[p].h, 1);
+    }
+  });
+
+  test("a bigger sheet takes more rows, so the same rows need fewer pages", async () => {
+    const tasks = schedule.activities;
+    const rows: Row[] = Array.from({ length: 600 }, (_, i) => ({ kind: "task", key: `t${i}`, task: tasks[i % tasks.length]!, depth: 1 }));
+    const a4 = (await renderWith({ paper: "a4", text: "one-line" }, rows)).pages;
+    const a3 = (await renderWith({ paper: "a3", text: "one-line" }, rows)).pages;
+    const a2 = (await renderWith({ paper: "a2", text: "one-line" }, rows)).pages;
+    expect(a4).toBeGreaterThan(a3);
+    expect(a3).toBeGreaterThan(a2);
+    expect(a3).toBe(Math.ceil(600 / rowsPerPage(1, 1, "a3")));
+    expect(estimatePages(600, 1, "a4")).toBe(a4);
+  });
+
+  test("only the page asked for is drawn, but the page count and numbering are the whole print's", async () => {
+    const tasks = schedule.activities;
+    const rows: Row[] = Array.from({ length: 300 }, (_, i) => ({ kind: "task", key: `t${i}`, task: tasks[i % tasks.length]!, depth: 1 }));
+    const input = { schedule, rows, filters: noFilters, matched: 300, total: 300, generatedAt: new Date(2026, 8, 21) };
+    const all = await buildPdf(input, { compress: false });
+    const one = await buildPdf(input, { compress: false, onlyPage: 1 });
+    expect(one.pages).toBe(all.pages);
+    const text = pdfString(await one.blob.arrayBuffer());
+    expect([...text.matchAll(/\/Type \/Page\b/g)]).toHaveLength(1);
+    expect(shown(text).some((l) => l.includes(`Page 2 of ${all.pages}`))).toBe(true);
+  });
+});
+
+describe("rows that need more than one line", () => {
+  test("a row is one line tall, and each further line adds the same amount", () => {
+    expect(rowHeight(1)).toBe(rowHeight(0));
+    expect(rowHeight(2) - rowHeight(1)).toBe(LINE_H);
+    expect(rowHeight(3) - rowHeight(2)).toBe(LINE_H);
+  });
+
+  test("pages start where the next row would not fit, and a page is never empty", () => {
+    expect(paginate([], 100)).toEqual([0]);
+    expect(paginate([10, 10, 10, 10, 10], 30)).toEqual([0, 3]);
+    expect(paginate([10, 10, 10, 10, 10, 10], 30)).toEqual([0, 3]);
+    expect(paginate([10, 25, 10, 25], 30)).toEqual([0, 1, 2, 3]); // tall rows push to a new page
+    expect(paginate([50, 10], 30)).toEqual([0, 1]); // a row taller than the page still gets one
+  });
+
+  test("a page full of one-line rows holds as many as it always did", () => {
+    const room = bodyRoom("a3", 1, 1);
+    const per = rowsPerPage(1, 1, "a3");
+    const starts = paginate(Array(per * 3).fill(rowHeight(1)), room);
+    expect(starts).toEqual([0, per, 2 * per]);
+  });
+
+  test("the column is as wide as the longest row needs, between its fixed width and a share of the page", () => {
+    expect(treeWidth(100, PAPERS.a3.w, "wrap")).toBe(262);
+    expect(treeWidth(300, PAPERS.a3.w, "wrap")).toBe(300);
+    expect(treeWidth(5000, PAPERS.a3.w, "wrap")).toBeCloseTo(PAPERS.a3.w * 0.35, 0);
+    expect(treeWidth(5000, PAPERS.a2.w, "wrap")).toBeGreaterThan(treeWidth(5000, PAPERS.a3.w, "wrap"));
+    expect(treeWidth(5000, PAPERS.a3.w, "one-line")).toBe(262);
+  });
+
+  const long = "Procure chilled water pumps, valves and the associated controls package for the second floor plant room";
+  const withLong = () => {
+    const first = allRows.find((r) => r.kind === "task")!;
+    return allRows.map((r) => (r === first && r.kind === "task" ? { ...r, task: { ...r.task, name: long } } : r));
+  };
+  const print = async (layout: Partial<PrintLayout>, rows: Row[]) => {
+    const { blob, pages } = await buildPdf(
+      { schedule, rows, filters: noFilters, matched: schedule.activities.length, total: schedule.activities.length, generatedAt: new Date(2026, 8, 21), layout },
+      { compress: false },
+    );
+    return { lines: shown(pdfString(await blob.arrayBuffer())), pages };
+  };
+
+  test("one line mode cuts a long name with '...', as it always did", async () => {
+    // (with no bar labels, since the name beside the bar may well fit whole)
+    const { lines } = await print({ text: "one-line", labels: "none" }, withLong());
+    expect(lines.some((l) => l === pdfText(long))).toBe(false);
+    expect(lines.some((l) => l.startsWith("Procure chilled water") && l.endsWith("..."))).toBe(true);
+  });
+
+  test("wrap mode prints the whole name, on more than one line if it must", async () => {
+    const { lines } = await print({ text: "wrap", labels: "none" }, withLong());
+    const pieces = lines.filter((l) => long.includes(l) && l.length > 10);
+    expect(pieces.length).toBeGreaterThanOrEqual(1);
+    expect(pieces.join(" ").replace(/\s+/g, " ")).toContain(long);
+    expect(lines.some((l) => l.endsWith("..."))).toBe(false); // nothing was cut
+  });
+
+  test("wrapping can make a print need more pages than the one-line rows would", async () => {
+    const tasks = schedule.activities;
+    const rows: Row[] = Array.from({ length: 150 }, (_, i) => ({ kind: "task", key: `t${i}`, task: { ...tasks[i % tasks.length]!, name: `${long} ${long}` }, depth: 1 }));
+    const wrap = (await print({ text: "wrap" }, rows)).pages;
+    const one = (await print({ text: "one-line" }, rows)).pages;
+    expect(wrap).toBeGreaterThan(one);
+  });
+});
+
+describe("bar labels", () => {
+  const dated = schedule.activities.filter((a) => a.start !== null && a.finish !== null);
+  const early = dated.reduce((m, a) => (a.start! < m.start! ? a : m));
+  const make = (name: string) => {
+    const task = { ...early, name };
+    return allRows.filter((r) => r.kind === "task").map((r) => (r.kind === "task" && r.task.id === early.id ? { ...r, task } : r));
+  };
+  const labelsOf = async (labels: PrintLayout["labels"], name: string) => {
+    const { blob } = await buildPdf(
+      { schedule, rows: make(name), filters: noFilters, matched: 1, total: 1, generatedAt: new Date(2026, 8, 21), layout: { labels, text: "one-line" } },
+      { compress: false },
+    );
+    return shown(pdfString(await blob.arrayBuffer()));
+  };
+  const code = pdfText(early.code);
+
+  test("'none' prints nothing beside the bar, but the code and name stay in the table", async () => {
+    const lines = await labelsOf("none", "Zebra Crossing Works");
+    expect(lines.filter((l) => l === "Zebra Crossing Works")).toHaveLength(1); // the table only
+    expect(lines.filter((l) => l === code)).toHaveLength(1);
+  });
+
+  test("'name' puts the name by the bar, as the table has it", async () => {
+    const lines = await labelsOf("name", "Zebra Crossing Works");
+    expect(lines.filter((l) => l === "Zebra Crossing Works")).toHaveLength(2);
+  });
+
+  test("'id' puts the code by the bar instead of the name", async () => {
+    const lines = await labelsOf("id", "Zebra Crossing Works");
+    expect(lines.filter((l) => l === "Zebra Crossing Works")).toHaveLength(1);
+    expect(lines.filter((l) => l === code)).toHaveLength(2);
+  });
+
+  test("'smart' keeps a name that fits, and uses the ID when the name is too long for either side", async () => {
+    const short = await labelsOf("smart", "Zebra Crossing Works");
+    expect(short.filter((l) => l === "Zebra Crossing Works")).toHaveLength(2);
+    const huge = "x".repeat(400);
+    const lines = await labelsOf("smart", huge);
+    expect(lines.filter((l) => l.startsWith("xxxx") && !l.endsWith("..."))).toHaveLength(0); // never a half name
+    expect(lines.filter((l) => l === code)).toHaveLength(2); // the table's code and the label
   });
 });

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib/compare";
@@ -8,7 +8,10 @@ import { downloadBlob } from "../lib/csv";
 import { lockTextSelection } from "../lib/dragSelect";
 import { describeTrace, runTrace, type TraceMode, type TraceSpec } from "../lib/drivingPath";
 import { buildLinks } from "../lib/links";
-import { buildPdf, describeFilters, estimatePages, safeFileName } from "../lib/printPdf";
+import { buildPdf, describeFilters, estimatePages, safeFileName, type PrintInput } from "../lib/printPdf";
+import { PAPERS, type PrintLayout } from "../lib/printLayout";
+import { colourAt, guideMasks, guideStyle, inkFor, pdfGuides, PLAIN_INDENT_STEP, type GuideStyle } from "../lib/levelGuides";
+import { useLevelGuides } from "../state/useLevelGuides";
 import {
   ACTIVITY_FILTERS,
   buildRows,
@@ -16,14 +19,19 @@ import {
   canExpandWithin,
   collapseWithin,
   collapsibleIds,
+  describeActivitySort,
   expandWithin,
+  isDateField,
   makePredicate,
   maxWbsDepth,
+  nextActivitySort,
   toDateRange,
   type ActivityFilter,
   type ActivitySort,
+  type DateField,
   type DateMode,
   type Row,
+  type WbsSort,
 } from "../lib/scheduleRows";
 import {
   buildTicks,
@@ -41,7 +49,7 @@ import { usePersistedStrings } from "../state/usePersistedStrings";
 import { nonWorkingRuns } from "../lib/xer/calendar";
 import { isMilestone, type Activity, type Schedule as ScheduleModel, type WbsNode } from "../lib/xer/model";
 import { ActivityDetails } from "./ActivityDetails";
-import { ActivitySortSelect } from "./ActivitySortSelect";
+import { WbsSortSelect } from "./WbsSortSelect";
 import { ColumnsMenu } from "./ColumnsMenu";
 import { CompareBar } from "./CompareBar";
 import { CompareMenu } from "./CompareMenu";
@@ -52,8 +60,10 @@ import { FitViewButton } from "./FitViewButton";
 import { LegendMenu } from "./LegendMenu";
 import { TraceMenu } from "./TraceMenu";
 import { TracePanel } from "./TracePanel";
+import { PrintDialog } from "./PrintDialog";
+import { BottomPanel } from "./BottomPanel";
 import { WbsLevelSelect } from "./WbsLevelSelect";
-import { LuChevronsDown, LuChevronsUp, LuFilter, LuFoldVertical, LuMinus, LuPlus, LuPrinter, LuTarget, LuUnfoldVertical } from "react-icons/lu";
+import { LuArrowDown, LuArrowUp, LuChevronDown, LuChevronRight, LuChevronsDown, LuChevronsUp, LuFilter, LuFoldVertical, LuMinus, LuPlus, LuPrinter, LuTarget, LuUnfoldVertical } from "react-icons/lu";
 import { STATUS_DOT, Switch, badgeClass, buttonClass, iconButtonClass, iconToggleClass, inputClass } from "./ui";
 
 const ROW_H = 26;
@@ -114,10 +124,16 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
   // How many WBS levels get their own row; deeper levels are flattened into the deepest one shown, like P6's
   // "Group by WBS" level setting. Null (the default) shows every level, as before.
   const [wbsDepth, setWbsDepth] = useState<number | null>(null);
-  // How activities and WBS groups are ordered at every level; see ActivitySort. A preference, so — unlike
-  // wbsDepth — it is remembered and not reset per project, the same as Non-working or Groups.
-  const [sortByDate, setSortByDate] = usePersistedBoolean("xerview-sort-date", false);
-  const sortMode: ActivitySort = sortByDate ? "date" : "code";
+  // How the WBS groups are ordered at every level; see WbsSort. A preference, so — unlike wbsDepth — it is remembered
+  // and not reset per project, the same as Non-working or Groups.
+  const [wbsSortByDate, setWbsSortByDate] = usePersistedBoolean("xerview-wbs-sort-date", false);
+  const wbsSort: WbsSort = wbsSortByDate ? "date" : "sequence";
+  // How the activities inside the groups are ordered, set by clicking a date column's heading; see ActivitySort. Not
+  // remembered: the heading shows it, and a different project starts in Activity ID order.
+  const [activitySortChoice, setActivitySortChoice] = useState<ActivitySort | null>(null);
+  // The lines showing which group a row is under, and how far each level is indented; chosen in Settings. Null while off.
+  const [levelGuides] = useLevelGuides();
+  const guides = useMemo(() => guideStyle(levelGuides), [levelGuides]);
   const [showLinks, setShowLinks] = useState(false);
   // A driving-logic trace (see lib/drivingPath.ts) and whether the schedule is narrowed to its activities.
   const [trace, setTrace] = useState<TraceSpec | null>(null);
@@ -138,6 +154,8 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
   // While a PDF is being built: how many pages are done. Null when idle.
   const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  // The Print to PDF dialog (paper, text and label choices, with a preview).
+  const [printOpen, setPrintOpen] = useState(false);
   // Optional columns beyond the fixed five, switched on from the Columns menu. A preference, so it is remembered
   // and not reset per project (like the theme, not like a filter).
   const [enabledColumns, setEnabledColumns] = usePersistedStrings("xerview-columns", []);
@@ -151,6 +169,14 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
     () => (compare.active ? COMPARE_COLUMNS.filter((c) => enabledCompareColumns.includes(c.key)) : []),
     [compare.active, enabledCompareColumns],
   );
+  // The sort only counts while its column is showing: hiding the column would otherwise leave activities in an order
+  // that nothing on screen explains.
+  const activitySort =
+    activitySortChoice &&
+    (fixedColumns.some((c) => c.key === activitySortChoice.field) || activeColumns.some((c) => c.key === activitySortChoice.field))
+      ? activitySortChoice
+      : null;
+  const sortBy = (field: DateField) => setActivitySortChoice((cur) => nextActivitySort(cur, field));
   // How much of the left panel the fixed and optional columns need; whatever is left goes to the activity name.
   const fixedW =
     fixedColumns.reduce((n, c) => n + c.width, 0) +
@@ -180,6 +206,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
     setAdvanced(EMPTY_FILTER);
     setZoom(null);
     setWbsDepth(null);
+    setActivitySortChoice(null);
     setTrace(null);
     setPathOnly(false);
     setGroupId(null);
@@ -237,10 +264,54 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
     [predicate],
   );
   const rows = useMemo(
-    () => buildRows(schedule.roots, collapsed, predicate, wbsDepth, sortMode),
-    [schedule, collapsed, predicate, wbsDepth, sortMode],
+    () => buildRows(schedule.roots, collapsed, predicate, wbsDepth, wbsSort, activitySort),
+    [schedule, collapsed, predicate, wbsDepth, wbsSort, activitySort],
   );
   const wbsLevels = useMemo(() => maxWbsDepth(schedule.roots), [schedule]);
+  // The group a pointer on one of the tree's lines is over: the row it is at, and the tip that names its path.
+  const [hovered, setHovered] = useState<{ at: number; tip: GuideTipData } | null>(null);
+  useEffect(() => setHovered(null), [rows, guides]);
+  const hoverGuide = useCallback(
+    (index: number, col: number, el: HTMLElement) => {
+      // The group at level `col` above row `index` is the nearest group row at that depth going up (or the row itself),
+      // and its own parents are the nearest ones at each shallower depth above that.
+      const path: WbsNode[] = [];
+      let at = -1;
+      for (let j = index, need = col; j >= 0 && need >= 0; j--) {
+        const r = rows[j]!;
+        if (r.kind === "wbs" && r.depth === need) {
+          path.unshift(r.node);
+          if (at < 0) at = j;
+          need--;
+        }
+      }
+      if (at < 0) return;
+      const group = rows[at] as Extract<Row, { kind: "wbs" }>;
+      const box = el.getBoundingClientRect();
+      setHovered({ at, tip: { x: box.left, y: box.bottom, path, count: group.matches ?? group.node.activityCount } });
+    },
+    [rows],
+  );
+  const leaveGuide = useCallback(() => setHovered(null), []);
+  // The group whose rows get bold guide lines: the one the pointer is on, else the one selected, else the one holding the
+  // selected activity. Its rows are the group's own row (whose line leaves the bottom of its circle) and the ones after
+  // it that are deeper than it; its lines are the one at its own level.
+  const emphasis = useMemo(() => {
+    if (!guides) return null;
+    let at = hovered?.at ?? -1;
+    if (at < 0) {
+      const target = groupId ?? (selectedId ? schedule.activityById.get(selectedId)?.wbsId : null);
+      if (!target) return null;
+      at = rows.findIndex((r) => r.kind === "wbs" && r.node.id === target);
+      if (at < 0) return null;
+    }
+    const depth = rows[at]!.depth;
+    let end = at + 1;
+    while (end < rows.length && rows[end]!.depth > depth) end++;
+    return { from: at, to: end, col: depth };
+  }, [guides, hovered, groupId, selectedId, rows, schedule]);
+  // Which lines of the tree run through each row (see guideMasks); only needed while the guides are shown.
+  const guideLines = useMemo(() => (guides ? guideMasks(rows.map((r) => r.depth)) : null), [guides === null, rows]);
   const virtual = useVirtualRows({ count: rows.length, rowHeight: ROW_H });
   const { scrollToIndex } = virtual;
 
@@ -515,47 +586,52 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
     unlockSelection.current = null;
   };
 
-  const printToPdf = async () => {
+  /** What the PDF is of, as on screen; the layout (paper, text, labels) is added by the dialog. */
+  const printInput = (): PrintInput => {
     const filters = { status: filter, query, searchGroups, dateFrom, dateTo, dateMode, advanced, path: pathOnly && trace ? describeTrace(schedule, trace) : null };
-    const pages = estimatePages(rows.length, describeFilters(filters).length ? 2 : 1);
-    if (pages > 100 && !window.confirm(`This will make a PDF of about ${pages} A3 pages. Continue?`)) return;
+    return {
+      schedule,
+      rows,
+      filters,
+      matched: matchCount,
+      total: schedule.stats.activities,
+      today: showToday ? today : null,
+      columns: enabledColumns,
+      hiddenColumns: hiddenFixed,
+      compareColumns: enabledCompareColumns,
+      view: { wbsLevel: wbsDepth, levels: wbsLevels, wbsSort, activitySort },
+      guides: pdfGuides(levelGuides),
+      shadeNonWorking: showNonWorking && pattern !== null,
+      compare:
+        compare.active && compare.comparison && compare.baseline && compare.current
+          ? {
+              label: describeCompare(compare),
+              changes: compare.comparison.changes,
+              showBaseline: compare.showBaseline,
+            }
+          : null,
+      trace:
+        trace && traceResult && (traceIds || droppedIds?.size)
+          ? {
+              label: describeTrace(schedule, trace) + (comparedTrace && !comparedTrace.note ? ", compared with the baseline" : ""),
+              ids: traceIds ?? new Set<string>(),
+              links: traceResult.links.map((l) => l.rel),
+              dropped: droppedIds?.size && comparedTrace ? { ids: droppedIds, links: comparedTrace.droppedLinks } : null,
+            }
+          : null,
+    };
+  };
+
+  const printToPdf = async (layout: PrintLayout) => {
+    const input = printInput();
+    const pages = estimatePages(rows.length, describeFilters(input.filters).length ? 2 : 1, layout.paper);
+    if (pages > 100 && !window.confirm(`This will make a PDF of about ${pages} ${PAPERS[layout.paper].label} pages. Continue?`)) return;
     setPdfError(null);
     setPdfProgress({ done: 0, total: pages });
     try {
-      const { blob } = await buildPdf(
-        {
-          schedule,
-          rows,
-          filters,
-          matched: matchCount,
-          total: schedule.stats.activities,
-          today: showToday ? today : null,
-          columns: enabledColumns,
-          hiddenColumns: hiddenFixed,
-          compareColumns: enabledCompareColumns,
-          view: { wbsLevel: wbsDepth, levels: wbsLevels, sort: sortMode },
-          shadeNonWorking: showNonWorking && pattern !== null,
-          compare:
-            compare.active && compare.comparison && compare.baseline && compare.current
-              ? {
-                  label: describeCompare(compare),
-                  changes: compare.comparison.changes,
-                  showBaseline: compare.showBaseline,
-                }
-              : null,
-          trace:
-            trace && traceResult && (traceIds || droppedIds?.size)
-              ? {
-                  label: describeTrace(schedule, trace) + (comparedTrace && !comparedTrace.note ? ", compared with the baseline" : ""),
-                  ids: traceIds ?? new Set<string>(),
-                  links: traceResult.links.map((l) => l.rel),
-                  dropped: droppedIds?.size && comparedTrace ? { ids: droppedIds, links: comparedTrace.droppedLinks } : null,
-                }
-              : null,
-        },
-        { onProgress: (done, total) => setPdfProgress({ done, total }) },
-      );
+      const { blob } = await buildPdf({ ...input, layout }, { onProgress: (done, total) => setPdfProgress({ done, total }) });
       downloadBlob(safeFileName(schedule.project.name), blob);
+      setPrintOpen(false);
     } catch (e) {
       setPdfError(e instanceof Error ? e.message : "Couldn't make the PDF.");
     } finally {
@@ -655,22 +731,20 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
           <button
             type="button"
             className={`${buttonClass} gap-1.5`}
-            onClick={printToPdf}
+            onClick={() => {
+              setPdfError(null);
+              setPrintOpen(true);
+            }}
             disabled={pdfProgress !== null || rows.length === 0}
             title={
               rows.length === 0
                 ? "Nothing to print: no activities match the filters"
-                : "Save what is shown (with the current filters) as a PDF on A3 paper, landscape"
+                : "Save what is shown (with the current filters) as a PDF: choose the paper and options, with a preview"
             }
           >
             <LuPrinter size={14} aria-hidden />
-            {pdfProgress ? `Page ${Math.min(pdfProgress.done + 1, pdfProgress.total)} of ${pdfProgress.total}…` : "PDF"}
+            PDF
           </button>
-          {pdfError && (
-            <span role="alert" className="basis-full text-right text-xs text-red-600 dark:text-red-400">
-              {pdfError}
-            </span>
-          )}
         </div>
 
         {showBuilder && <FilterBuilder schedule={schedule} value={advanced} onChange={setAdvanced} />}
@@ -719,7 +793,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
             </button>
           </div>
           {wbsLevels > 0 && <WbsLevelSelect levels={wbsLevels} value={wbsDepth ?? wbsLevels} onChange={setWbsDepth} />}
-          <ActivitySortSelect value={sortMode} onChange={(s) => setSortByDate(s === "date")} />
+          <WbsSortSelect value={wbsSort} onChange={(s) => setWbsSortByDate(s === "date")} />
           <ColumnsMenu
             hiddenFixed={hiddenFixed}
             onFixedToggle={(key, on) => setHiddenFixed((cur) => (on ? cur.filter((k) => k !== key) : cur.includes(key) ? cur : [...cur, key]))}
@@ -857,9 +931,9 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                   key={c.key}
                   className={`shrink-0 px-1 pb-1.5 ${colBorder} ${c.align === "left" ? "text-left" : "text-right"}`}
                   style={{ width: c.width }}
-                  title={c.title}
+                  title={isDateField(c.key) ? undefined : c.title}
                 >
-                  {c.label}
+                  {isDateField(c.key) ? <SortHeading field={c.key} label={c.label} title={c.title} sort={activitySort} onSort={sortBy} /> : c.label}
                 </div>
               ))}
               {activeColumns.map((c) => (
@@ -867,9 +941,9 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                   key={c.key}
                   className={`shrink-0 px-1 pb-1.5 ${colBorder} ${c.align === "right" ? "text-right" : "text-left"}`}
                   style={{ width: c.width }}
-                  title={c.title}
+                  title={isDateField(c.key) ? undefined : c.title}
                 >
-                  {c.label}
+                  {isDateField(c.key) ? <SortHeading field={c.key} label={c.label} title={c.title} sort={activitySort} onSort={sortBy} /> : c.label}
                 </div>
               ))}
               {activeCompareColumns.map((c, i) => (
@@ -1006,39 +1080,80 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                 onExpandGroup={expandGroup}
                 onCollapseGroup={collapseGroup}
                 groupAction={row.kind === "wbs" ? groupActions(row.node) : null}
+                guides={guides}
+                lines={guideLines ? guideLines[virtual.start + k]! : 0}
+                index={virtual.start + k}
+                onGuideHover={hoverGuide}
+                onGuideLeave={leaveGuide}
+                boldCol={emphasis && virtual.start + k >= emphasis.from && virtual.start + k < emphasis.to ? emphasis.col : null}
               />
             ))}
           </div>
         </div>
       </div>
 
-      {trace && traceResult && (
-        <TracePanel
-          schedule={schedule}
-          matched={compare.matched}
-          compared={comparedTrace}
-          showBaselinePath={showBaselinePath}
-          onShowBaselinePath={setShowBaselinePath}
-          spec={trace}
-          result={traceResult}
-          selectedId={selectedId}
-          pathOnly={pathOnly}
-          onPathOnly={setPathOnly}
-          onSelect={onSelect}
-          onClose={closeTrace}
+      {hovered && guides && <GuideTip tip={hovered.tip} guides={guides} />}
+
+      {printOpen && (
+        <PrintDialog
+          makeInput={printInput}
+          guidesNote={levelGuides.show ? (levelGuides.print ? "The level guides are printed." : "The level guides are not printed (see Settings).") : ""}
+          busy={pdfProgress}
+          error={pdfError}
+          onDownload={printToPdf}
+          onClose={() => setPrintOpen(false)}
         />
       )}
 
-      {/* The trace takes the details panel's place while it is showing; closing it brings the details back. */}
-      {detailActivity && !trace && (
-        <ActivityDetails
-          key={detailActivity.id}
-          schedule={schedule}
-          activity={detailActivity}
-          change={changeNotes}
-          onSelect={onSelect}
-          onClose={() => onSelect(null)}
+      {/* While a trace is showing, the bottom panel has a tab for it and, once something is selected, one for that activity's details. */}
+      {trace && traceResult ? (
+        <BottomPanel
+          activity={detailActivity ?? null}
+          onCloseTrace={closeTrace}
+          onDeselect={() => onSelect(null)}
+          trace={
+            <TracePanel
+              embedded
+              schedule={schedule}
+              matched={compare.matched}
+              compared={comparedTrace}
+              showBaselinePath={showBaselinePath}
+              onShowBaselinePath={setShowBaselinePath}
+              spec={trace}
+              result={traceResult}
+              selectedId={selectedId}
+              pathOnly={pathOnly}
+              onPathOnly={setPathOnly}
+              onSelect={onSelect}
+              onClose={closeTrace}
+            />
+          }
+          details={
+            detailActivity && (
+              <ActivityDetails
+                embedded
+                key={detailActivity.id}
+                schedule={schedule}
+                activity={detailActivity}
+                change={changeNotes}
+                onSelect={onSelect}
+                onClose={() => onSelect(null)}
+              />
+            )
+          }
         />
+      ) : (
+        detailActivity &&
+        !trace && (
+          <ActivityDetails
+            key={detailActivity.id}
+            schedule={schedule}
+            activity={detailActivity}
+            change={changeNotes}
+            onSelect={onSelect}
+            onClose={() => onSelect(null)}
+          />
+        )
       )}
     </div>
   );
@@ -1053,6 +1168,47 @@ function describeCompare(compare: CompareApi): string {
 }
 
 /** Memoised: it is thousands of small elements that only change with the zoom, and Schedule re-renders as the rows scroll. */
+/**
+ * A date column's heading, as a button: each click orders the activities inside their groups by that column, earliest
+ * first, then latest first, then back to Activity ID order. The groups stay as the WBS order puts them.
+ */
+function SortHeading({
+  field,
+  label,
+  title,
+  sort,
+  onSort,
+}: {
+  field: DateField;
+  label: string;
+  title: string;
+  sort: ActivitySort | null;
+  onSort: (field: DateField) => void;
+}) {
+  const on = sort?.field === field ? sort : null;
+  const next = nextActivitySort(sort, field);
+  const hint = next ? `Click to order the activities by ${describeActivitySort(next)}` : "Click to go back to Activity ID order";
+  const Arrow = on?.dir === "desc" ? LuArrowDown : LuArrowUp;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      aria-pressed={on !== null}
+      aria-label={`Order activities by ${label}`}
+      title={`${title}. ${on ? `Activities ordered by ${describeActivitySort(on)}. ` : ""}${hint}`}
+      className={
+        "-mx-1 inline-flex max-w-full items-center gap-0.5 rounded px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 " +
+        (on
+          ? "bg-accent-50 text-accent-700 dark:bg-accent-950 dark:text-accent-300"
+          : "hover:text-slate-900 dark:hover:text-slate-100")
+      }
+    >
+      <span className="truncate">{label}</span>
+      {on && <Arrow size={11} aria-hidden />}
+    </button>
+  );
+}
+
 const TimeScale = memo(function TimeScale({ ticks, width }: { ticks: ReturnType<typeof buildTicks>; width: number }) {
   const tier = (list: typeof ticks.top, top: number) =>
     list.map((t, i) => (
@@ -1101,6 +1257,16 @@ interface RowProps {
   onCollapseGroup: (id: string) => void;
   /** What the group row's one button does, if it has any: see `groupAction`. */
   groupAction: GroupAction | null;
+  /** The level guides (lines, indent step, group tint), or null while they are off. */
+  guides: GuideStyle | null;
+  /** Which lines of the tree run through the row: see `guideMasks`. */
+  lines: number;
+  /** The row's place in the table, and what to do when the pointer comes onto or leaves one of its tree lines. */
+  index: number;
+  onGuideHover: (index: number, col: number, el: HTMLElement) => void;
+  onGuideLeave: () => void;
+  /** Which of the row's guide lines to draw bold: the one at this level, or none. */
+  boldCol: number | null;
 }
 
 /**
@@ -1110,6 +1276,130 @@ interface RowProps {
 type GroupAction = "expand" | "collapse";
 function groupAction(collapsed: ReadonlySet<string>, node: WbsNode): GroupAction | null {
   return canExpandWithin(collapsed, node) ? "expand" : canCollapseWithin(collapsed, node) ? "collapse" : null;
+}
+
+/**
+ * Pixels an activity row is moved right while the guides are on, so that its status dot sits under its group's circle
+ * (a dot is 8 pixels across) and the elbow into it has some length.
+ */
+const taskLead = (guides: GuideStyle) => Math.max(2, Math.round(guides.circle / 2) - 4);
+
+/** A group row shaded in its level's colour (`--g`), on the sticky table cell and, see-through, on the rest of the row. */
+const BAND_SOLID = "bg-[color-mix(in_oklab,var(--g)_14%,var(--color-slate-50))] dark:bg-[color-mix(in_oklab,var(--g)_22%,var(--color-slate-900))]";
+const BAND_SEE_THROUGH = "bg-[color-mix(in_oklab,var(--g)_14%,transparent)] dark:bg-[color-mix(in_oklab,var(--g)_22%,transparent)]";
+
+/** A piece of the tree: the colour of its level in `--g`, lighter in dark mode, where a mid colour would sink. */
+const PIECE = "pointer-events-none absolute -z-10 bg-(--g) dark:bg-[color-mix(in_srgb,var(--g)_78%,white)]";
+
+/**
+ * The tree of one row, drawn behind the row's text: the line of each group above it (under that group's circle), which
+ * carries on down while the group has more rows to come and ends in an elbow into the row if this is its last; the elbow
+ * into the row from its own group's line; and, for a group, the line leaving the bottom of its circle. Each piece is a
+ * pixel longer at the top and bottom, over the row's border, so a line reads as one down the group. `lines` says which
+ * lines run (see `guideMasks`), and `boldCol` is the level whose lines are drawn bold. Lines are a little faint
+ * so the circles stand out.
+ */
+function Guides({ row, guides, lines, boldCol, index, onHover, onLeave }: { row: Row; guides: GuideStyle; lines: number; boldCol: number | null; index: number; onHover: (index: number, col: number, el: HTMLElement) => void; onLeave: () => void }) {
+  const depth = row.depth;
+  const centre = (c: number) => 8 + c * guides.step + guides.circle / 2;
+  const pieces = [];
+  // An invisible, wider strip over a piece of the tree: pointing at it names the group the piece belongs to.
+  const HIT = 8;
+  const hit = (key: string, col: number, style: CSSProperties) =>
+    pieces.push(<span key={key} aria-hidden className="absolute z-10" style={style} onMouseEnter={(e) => onHover(index, col, e.currentTarget)} onMouseLeave={onLeave} />);
+  const piece = (key: string, c: number, bold: boolean) => {
+    const w = bold ? guides.width + 1 : guides.width;
+    return { key, w, base: `${PIECE} ${bold ? "" : "opacity-70"}`, style: { "--g": colourAt(guides.colours, c) } as CSSProperties };
+  };
+  for (let c = 0; c < depth; c++) {
+    const runs = ((lines >> c) & 1) === 1;
+    const p = piece(`v${c}`, c, boldCol === c);
+    const elbow = c === depth - 1;
+    if (runs || elbow) {
+      // Straight down while there is more to come; to the middle of the row, where the elbow leaves, if this is the last.
+      pieces.push(<span key={p.key} aria-hidden className={`${p.base} -top-px ${runs ? "-bottom-px" : "bottom-1/2"}`} style={{ ...p.style, left: centre(c) - p.w / 2, width: p.w }} />);
+      hit(`hv${c}`, c, { left: centre(c) - HIT / 2, width: HIT, top: 0, ...(runs ? { bottom: 0 } : { bottom: "50%" }) });
+    }
+    if (elbow) {
+      const to = row.kind === "wbs" ? centre(depth) : 8 + depth * guides.step + taskLead(guides) - 1;
+      const e = piece(`h${c}`, c, boldCol === c);
+      pieces.push(<span key={e.key} aria-hidden className={`${e.base} top-1/2`} style={{ ...e.style, left: centre(c) - e.w / 2, width: to - centre(c) + e.w / 2, height: e.w, marginTop: -e.w / 2 }} />);
+      // The strip stops at the circle (or the activity's mark) so it never covers the button.
+      const stop = row.kind === "wbs" ? 8 + depth * guides.step : to;
+      hit(`he${c}`, c, { left: centre(c) + HIT / 2, width: Math.max(0, stop - centre(c) - HIT / 2), top: "50%", height: HIT * 2, marginTop: -HIT });
+    }
+  }
+  if (row.kind === "wbs" && ((lines >> depth) & 1) === 1) {
+    const p = piece("own", depth, boldCol === depth);
+    pieces.push(<span key={p.key} aria-hidden className={`${p.base} top-1/2 -bottom-px`} style={{ ...p.style, left: centre(depth) - p.w / 2, width: p.w }} />);
+    hit("hown", depth, { left: centre(depth) - HIT / 2, width: HIT, top: `calc(50% + ${guides.circle / 2}px)`, bottom: 0 });
+  }
+  return <>{pieces}</>;
+}
+
+/** What the tip over a tree line shows: the route from the top group down to the one the line belongs to, and its size. */
+interface GuideTipData {
+  /** Where its top-left corner goes, in the window. */
+  x: number;
+  y: number;
+  path: WbsNode[];
+  count: number;
+}
+
+/** The most levels the tip spells out; above that the route starts with an ellipsis. */
+const TIP_LEVELS = 4;
+
+function GuideTip({ tip, guides }: { tip: GuideTipData; guides: GuideStyle }) {
+  const first = Math.max(0, tip.path.length - TIP_LEVELS);
+  const shown = tip.path.slice(first);
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none fixed z-50 flex items-center gap-1 whitespace-nowrap rounded-md bg-slate-800 px-2.5 py-1.5 text-xs text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      style={{ left: tip.x, top: tip.y + 6, maxWidth: Math.max(160, window.innerWidth - tip.x - 12) }}
+    >
+      {first > 0 && <span className="text-slate-400">…</span>}
+      {shown.map((n, i) => (
+        <span key={n.id} className="flex min-w-0 items-center gap-1">
+          {(i > 0 || first > 0) && <span className="text-slate-400">›</span>}
+          <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colourAt(guides.colours, first + i) }} />
+          <span className={`truncate ${i === shown.length - 1 ? "font-medium" : ""}`}>{n.name}</span>
+        </span>
+      ))}
+      <span className="ml-1 shrink-0 text-slate-400">({fmtInt(tip.count)})</span>
+    </div>
+  );
+}
+
+/** The circle of a group: its level's colour, with the arrow that opens and closes it inside. */
+function GroupCircle({ name, open, depth, guides, onToggle, onExpandAll }: {
+  name: string;
+  open: boolean;
+  depth: number;
+  guides: GuideStyle;
+  onToggle: () => void;
+  onExpandAll: () => void;
+}) {
+  const colour = colourAt(guides.colours, depth);
+  const Arrow = open ? LuChevronDown : LuChevronRight;
+  return (
+    <button
+      type="button"
+      className="flex shrink-0 items-center justify-center rounded-full bg-(--g) text-(--ink) hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:bg-[color-mix(in_srgb,var(--g)_78%,white)] dark:text-slate-900"
+      style={{ width: guides.circle, height: guides.circle, "--g": colour, "--ink": inkFor(colour) } as CSSProperties}
+      aria-label={open ? `Collapse ${name}` : `Expand ${name}`}
+      aria-expanded={open}
+      title="Open or close this group. Shift-click to open everything inside it."
+      onClick={(e) => {
+        e.stopPropagation(); // the row's own click selects the group
+        if (e.shiftKey) onExpandAll();
+        else onToggle();
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <Arrow size={guides.circle - 4} strokeWidth={3} aria-hidden />
+    </button>
+  );
 }
 
 const ScheduleRow = memo(function ScheduleRow({
@@ -1133,8 +1423,17 @@ const ScheduleRow = memo(function ScheduleRow({
   onExpandGroup,
   onCollapseGroup,
   groupAction,
+  guides,
+  lines,
+  index,
+  onGuideHover,
+  onGuideLeave,
+  boldCol,
 }: RowProps) {
   const isWbs = row.kind === "wbs";
+  const step = guides?.step ?? PLAIN_INDENT_STEP;
+  // A group row can be shaded in its level's colour, like a P6 grouping band; the same colour as the line down its rows.
+  const banded = isWbs && guides?.tint === true;
   const onPath = trace === "on" && !selected;
   const kind = change && change.kind !== "unchanged" ? change.kind : null;
   const tint = kind ? CHANGE_TINT[kind] : "";
@@ -1146,27 +1445,32 @@ const ScheduleRow = memo(function ScheduleRow({
       ? solidTint
       : onPath
         ? "bg-cyan-50 dark:bg-cyan-950"
-        : isWbs
-      ? "bg-slate-50 dark:bg-slate-900"
-      : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
+        : banded
+          ? BAND_SOLID
+          : isWbs
+            ? "bg-slate-50 dark:bg-slate-900"
+            : "bg-white group-hover:bg-slate-50 dark:bg-slate-950 dark:group-hover:bg-slate-900";
 
   const handle = () => (isWbs ? onSelectGroup(row.node.id) : onSelect(row.task.id));
 
   return (
     <div
       className={`group absolute left-0 flex border-b border-slate-100 text-xs dark:border-slate-800 ${
-        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : tint ? tint : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
+        selected ? "bg-accent-50/60 dark:bg-accent-950/40" : tint ? tint : onPath ? "bg-cyan-50/60 dark:bg-cyan-950/40" : banded ? BAND_SEE_THROUGH : isWbs ? "bg-slate-50/70 dark:bg-slate-900/60" : "hover:bg-slate-50/70 dark:hover:bg-slate-900/50"
       }`}
-      style={{ top, height: ROW_H, width: totalW }}
+      style={banded ? ({ top, height: ROW_H, width: totalW, "--g": colourAt(guides.colours, row.depth) } as CSSProperties) : { top, height: ROW_H, width: totalW }}
       onClick={handle}
       onDoubleClick={isWbs ? () => onToggle(row.node.id) : undefined}
       aria-selected={selected || undefined}
     >
       <div className={`sticky left-0 z-10 flex shrink-0 items-center border-r border-slate-200 dark:border-slate-800 ${bg}`} style={{ width: leftW }}>
+        {guides && <Guides row={row} guides={guides} lines={lines} boldCol={boldCol} index={index} onHover={onGuideHover} onLeave={onGuideLeave} />}
         {isWbs ? (
           <WbsCells
             row={row}
             treeW={treeW}
+            step={step}
+            guides={guides}
             fixed={fixedColumns}
             columns={columns}
             compareColumns={compareColumns}
@@ -1176,7 +1480,7 @@ const ScheduleRow = memo(function ScheduleRow({
             onCollapseGroup={onCollapseGroup}
           />
         ) : (
-          <TaskCells task={row.task} depth={row.depth} treeW={treeW} fixed={fixedColumns} columns={columns} compareColumns={compareColumns} change={change} />
+          <TaskCells task={row.task} depth={row.depth} step={step} lead={guides ? taskLead(guides) : 0} treeW={treeW} fixed={fixedColumns} columns={columns} compareColumns={compareColumns} change={change} />
         )}
       </div>
       <div className={`relative shrink-0 overflow-hidden ${trace === "off" ? "opacity-30" : ""}`} style={{ width: timeline.width }}>
@@ -1195,6 +1499,8 @@ const numCell ="shrink-0 truncate px-1 tabular-nums";
 function WbsCells({
   row,
   treeW,
+  step,
+  guides,
   fixed,
   columns,
   compareColumns,
@@ -1205,6 +1511,10 @@ function WbsCells({
 }: {
   row: Extract<Row, { kind: "wbs" }>;
   treeW: number;
+  /** Pixels each level moves a row to the right. */
+  step: number;
+  /** The level guides: with them, the arrow sits in a coloured circle. */
+  guides: GuideStyle | null;
   fixed: FixedColumn[];
   columns: OptionalColumn[];
   compareColumns: CompareColumn[];
@@ -1216,22 +1526,26 @@ function WbsCells({
   const { node } = row;
   return (
     <>
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2 font-semibold" style={{ width: treeW, paddingLeft: 8 + row.depth * 14 }}>
-        <button
-          type="button"
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] text-slate-500 hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-700"
-          aria-label={row.expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
-          aria-expanded={row.expanded}
-          title="Open or close this group. Shift-click to open everything inside it."
-          onClick={(e) => {
-            e.stopPropagation(); // the row's own click selects the group
-            if (e.shiftKey) onExpandGroup(node.id);
-            else onToggle(node.id);
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          {row.expanded ? "▼" : "▶"}
-        </button>
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2 font-semibold" style={{ width: treeW, paddingLeft: 8 + row.depth * step }}>
+        {guides ? (
+          <GroupCircle name={node.name} open={row.expanded} depth={row.depth} guides={guides} onToggle={() => onToggle(node.id)} onExpandAll={() => onExpandGroup(node.id)} />
+        ) : (
+          <button
+            type="button"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] text-slate-500 hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-700"
+            aria-label={row.expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
+            aria-expanded={row.expanded}
+            title="Open or close this group. Shift-click to open everything inside it."
+            onClick={(e) => {
+              e.stopPropagation(); // the row's own click selects the group
+              if (e.shiftKey) onExpandGroup(node.id);
+              else onToggle(node.id);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            {row.expanded ? "▼" : "▶"}
+          </button>
+        )}
         <span className="truncate">{node.name}</span>
         <span
           className="shrink-0 font-normal text-slate-400"
@@ -1281,6 +1595,8 @@ const CELL_TONE = {
 function TaskCells({
   task,
   depth,
+  step,
+  lead,
   treeW,
   fixed,
   columns,
@@ -1289,6 +1605,10 @@ function TaskCells({
 }: {
   task: Activity;
   depth: number;
+  /** Pixels each level moves a row to the right. */
+  step: number;
+  /** Extra room before the status dot, so that the line of the group above (which ends at its edge) doesn't touch it. */
+  lead: number;
   treeW: number;
   fixed: FixedColumn[];
   columns: OptionalColumn[];
@@ -1312,7 +1632,7 @@ function TaskCells({
   return (
     <>
       {/* overflow-hidden: whatever still doesn't fit is cut off at the edge, not drawn over the next column */}
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2" style={{ width: treeW, paddingLeft: 8 + depth * 14 }}>
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden pr-2" style={{ width: treeW, paddingLeft: 8 + depth * step + lead }}>
         {kind && (
           <span
             aria-label={kind === "added" ? "New" : kind === "removed" ? "Removed" : "Modified"}

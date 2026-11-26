@@ -23,6 +23,8 @@ interface Props {
   onPathOnly: (on: boolean) => void;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /** Shown inside the bottom panel's Trace tab, which supplies the border, the height limit and the close button. */
+  embedded?: boolean;
 }
 
 /** Rows drawn before the list is cut off (the CSV always has every step). */
@@ -65,6 +67,7 @@ export function TracePanel({
   onPathOnly,
   onSelect,
   onClose,
+  embedded = false,
 }: Props) {
   const [picked, setFilter] = useState<StatusFilter>("all");
   const compare = matched && compared && !compared.note ? compared : null;
@@ -89,7 +92,7 @@ export function TracePanel({
   return (
     <section
       aria-label="Driving logic trace"
-      className="flex max-h-72 min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+      className={embedded ? "flex min-h-0 flex-1 flex-col" : "flex max-h-72 min-h-0 shrink-0 flex-col border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"}
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 px-3 py-1.5 dark:border-slate-800">
         <h3 className="text-sm font-semibold">{describeTrace(schedule, spec)}</h3>
@@ -135,9 +138,11 @@ export function TracePanel({
             <LuDownload size={14} aria-hidden />
             CSV
           </button>
-          <button type="button" className={iconButtonClass} onClick={onClose} aria-label="Close trace" title="Close the trace">
-            <LuX size={18} aria-hidden />
-          </button>
+          {!embedded && (
+            <button type="button" className={iconButtonClass} onClick={onClose} aria-label="Close trace" title="Close the trace">
+              <LuX size={18} aria-hidden />
+            </button>
+          )}
         </div>
       </div>
 
@@ -183,7 +188,7 @@ export function TracePanel({
       )}
 
       {found && all.length > 1 && (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto pb-3">
           <table className="w-full min-w-[640px] border-collapse">
             <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800">
               <tr>
