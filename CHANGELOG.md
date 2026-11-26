@@ -3,6 +3,11 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.3.2 (2026-11-26)
+
+- Show the PDF preview in Safari: drop frame-ancestors from the CSP
+- Stop the PDF preview frame showing a hover tooltip over the dialog
+
 ## 26.3.1 (2026-11-26)
 
 - Allow the PDF preview frame in the CSP, and offer Fit on the standalone details panel
