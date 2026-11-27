@@ -10,7 +10,12 @@ export function useDismiss(open: boolean, box: RefObject<HTMLElement | null>, cl
     const away = (e: MouseEvent) => {
       if (!box.current?.contains(e.target as Node)) close();
     };
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && close();
+    // Escape that has closed this is marked as dealt with, so nothing underneath (the rows deselecting) reacts to it too.
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      close();
+    };
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", escape);
     return () => {

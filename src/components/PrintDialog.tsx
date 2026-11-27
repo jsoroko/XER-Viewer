@@ -120,7 +120,11 @@ export function PrintDialog({ makeInput, guidesNote, busy, error, onDownload, on
     if (!busy) onClose();
   };
   useEffect(() => {
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && closeNow.current();
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      closeNow.current();
+    };
     document.addEventListener("keydown", escape);
     return () => document.removeEventListener("keydown", escape);
   }, []);

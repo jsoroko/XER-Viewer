@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { fmtDate, fmtDays, fmtInt } from "../lib/format";
 import { compileFilter, EMPTY_FILTER, type AdvancedFilter } from "../lib/advancedFilter";
 import { describeChange, fmtShift, shiftDays, type ActivityChange } from "../lib/compare";
@@ -65,6 +65,10 @@ import { BottomPanel } from "./BottomPanel";
 import { ResizeGrip } from "./ResizeGrip";
 import { WbsLevelSelect } from "./WbsLevelSelect";
 import { LuArrowDown, LuArrowUp, LuChevronDown, LuChevronRight, LuChevronsDown, LuChevronsUp, LuFilter, LuFoldVertical, LuMinus, LuPlus, LuPrinter, LuTarget, LuUnfoldVertical } from "react-icons/lu";
+import { useFindShortcut } from "./useFindShortcut";
+import { useWindowKeys } from "./useWindowKeys";
+import { SHORTCUTS, formatShortcut, isTypingTarget, matches, modalOpen, withShortcut } from "../lib/shortcuts";
+import { NAV_KEYS, navigateRows, type NavKey } from "../lib/treeNav";
 import { STATUS_DOT, Switch, badgeClass, buttonClass, iconButtonClass, iconToggleClass, inputClass } from "./ui";
 
 const ROW_H = 26;
@@ -116,6 +120,8 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
     ids: NO_GROUPS,
   });
   const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  useFindShortcut(searchRef);
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -544,26 +550,111 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
     setDateTo("");
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  // ---- Keyboard ---------------------------------------------------------------
+  /** The index in `rows` of what is selected, an activity or a group; -1 when nothing is or it is not in the rows. */
+  const selectedIndex = () =>
+    rows.findIndex((r) => (r.kind === "task" ? r.task.id === selectedId : groupId !== null && r.node.id === groupId));
+
+  // Selecting an activity opens the details panel, and a group closes it, which changes how much of the rows is in view.
+  // The row chosen is remembered here until the view has its new height, and then brought into view again if it needs to be.
+  const revealOnResize = useRef<string | null>(null);
+  useEffect(() => {
+    const key = revealOnResize.current;
+    if (!key || viewHeight === 0) return;
+    revealOnResize.current = null;
+    const i = rows.findIndex((r) => r.key === key);
+    if (i >= 0) scrollToIndex(i, HEADER_H);
+    // Only when the view's height changes; `rows` and the scroll function are read as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewHeight]);
+
+  const selectRow = (i: number) => {
+    const r = rows[i];
+    if (!r) return;
+    if (r.kind === "task") {
+      scrollTarget.current = r.task.id;
+      onSelect(r.task.id);
+    } else {
+      selectGroup(r.node.id);
+      scrollToIndex(i, HEADER_H);
+    }
+    revealOnResize.current = r.key;
+    // If the panel does not change size there is nothing to wait for, so do not hold on to it for a later, unrelated resize.
+    setTimeout(() => {
+      if (revealOnResize.current === r.key) revealOnResize.current = null;
+    }, 600);
+  };
+
+  /** Selects the next (or previous) activity, going round at the ends: for Enter in the search box. */
+  const stepMatch = (dir: 1 | -1) => {
+    const n = rows.length;
+    const from = selectedId ? rows.findIndex((r) => r.kind === "task" && r.task.id === selectedId) : -1;
+    for (let k = 1, i = from < 0 ? (dir > 0 ? -1 : n) : from; k <= n; k++) {
+      i = (i + dir + n) % n;
+      if (rows[i]!.kind === "task") return selectRow(i);
+    }
+  };
+
+  // Escape closes the filter panel (the search box, which handles Escape itself first, is left to clear its text). This is
+  // registered before the keys below so that, having closed the panel, the same press does not also deselect the row.
+  useWindowKeys(virtual.ref, (e) => {
+    if (e.key !== "Escape" || !showBuilder || modalOpen()) return;
+    e.preventDefault();
+    setShowBuilder(false);
+  });
+
+  useWindowKeys(virtual.ref, (e) => {
+    // With the command key: the chart's own actions. These are fine while typing in a box. Print is claimed even when a
+    // dialog is open, so the browser's own print window never opens over the app's.
+    const act = (fn: () => void) => {
+      e.preventDefault();
+      fn();
+    };
+    if (matches(e, SHORTCUTS.print)) {
+      return act(() => {
+        if (modalOpen() || pdfProgress !== null || rows.length === 0) return;
+        setPdfError(null);
+        setPrintOpen(true);
+      });
+    }
+    if (modalOpen()) return;
+    if (matches(e, SHORTCUTS.zoomOut)) return act(() => setZoom(clampPx(pxPerDay / 1.5)));
+    if (matches(e, SHORTCUTS.zoomIn)) return act(() => setZoom(clampPx(pxPerDay * 1.5)));
+    if (matches(e, SHORTCUTS.fit)) return act(() => setZoom(null));
+    if (matches(e, SHORTCUTS.dataDate)) return act(scrollToDataDate);
+
+    // Plain keys: only for the rows, never while typing, and never with the command key (that is the browser's).
+    if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
+    const grid = virtual.ref.current;
+    const inGrid = !!grid && grid.contains(e.target as Node);
+    if (!inGrid && e.target !== document.body) return;
     if (e.key === "Escape") {
+      if (!inGrid) return;
       onSelect(null);
       setGroupId(null);
       return;
     }
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    e.preventDefault();
-    const step = e.key === "ArrowDown" ? 1 : -1;
-    let i = rows.findIndex((r) => r.kind === "task" && r.task.id === selectedId);
-    if (i < 0) i = step > 0 ? -1 : rows.length;
-    for (i += step; i >= 0 && i < rows.length; i += step) {
-      const r = rows[i]!;
-      if (r.kind === "task") {
-        scrollTarget.current = r.task.id;
-        onSelect(r.task.id);
-        return;
-      }
+    if (!NAV_KEYS.includes(e.key)) return;
+    const key = e.key as NavKey;
+    const current = selectedIndex();
+    // With nothing selected, only the grid itself has the keys (so the page still scrolls as usual elsewhere), and the
+    // sideways arrows are left to scroll the chart.
+    if (current < 0 && (!inGrid || key === "ArrowLeft" || key === "ArrowRight")) return;
+    if (e.shiftKey) {
+      // Shift with the sideways arrows: the whole group and everything inside it.
+      if (key !== "ArrowLeft" && key !== "ArrowRight") return;
+      const node = group ?? (detailActivity ? schedule.wbs.get(detailActivity.wbsId) : undefined);
+      if (!node) return;
+      return act(() => (key === "ArrowLeft" ? collapseGroup(node.id) : expandGroup(node.id)));
     }
-  };
+    act(() => {
+      const move = navigateRows(rows, current, key);
+      if (!move) return;
+      if ("select" in move) selectRow(move.select);
+      else if ("open" in move) updateCollapsed((prev) => without(prev, move.open));
+      else updateCollapsed((prev) => new Set(prev).add(move.close));
+    });
+  });
 
   // ---- Left-pane resize -----------------------------------------------------
   const [tableResized, setTableResized] = usePersistedBoolean("xerview-table-resized", false);
@@ -658,17 +749,28 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
           <div className="relative">
             <input
+              ref={searchRef}
               type="search"
               aria-label="Search activities"
               placeholder={searchGroups ? "Search ID, name, group…" : "Search ID or name…"}
               title={
                 searchGroups
-                  ? "Searches task code, task name, and the names and codes of the WBS groups above each task"
-                  : "Searches task code and task name only"
+                  ? `Searches task code, task name, and the names and codes of the WBS groups above each task (${formatShortcut(SHORTCUTS.find)} to get here, Enter for the next match)`
+                  : `Searches task code and task name only (${formatShortcut(SHORTCUTS.find)} to get here, Enter for the next match)`
               }
               className={`${inputClass} w-72 pr-28 [&::-webkit-search-cancel-button]:appearance-none`}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  if (query) setQuery("");
+                  else virtual.ref.current?.focus(); // back to the rows, where the arrow keys work
+                } else if (e.key === "Enter" && query.trim() && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  stepMatch(e.shiftKey ? -1 : 1);
+                }
+              }}
             />
             <div className="absolute inset-y-0 right-2 flex items-center gap-2">
               {query && (
@@ -742,7 +844,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
             title={
               rows.length === 0
                 ? "Nothing to print: no activities match the filters"
-                : "Save what is shown (with the current filters) as a PDF: choose the paper and options, with a preview"
+                : withShortcut("Save what is shown (with the current filters) as a PDF: choose the paper and options, with a preview", SHORTCUTS.print)
             }
           >
             <LuPrinter size={14} aria-hidden />
@@ -878,7 +980,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
             />
             {/* Same 8px between these buttons as between the single buttons on the left; only a deliberate pair sits tighter. */}
             <div className="flex gap-2">
-              <button type="button" className={iconButtonClass} aria-label="Zoom out" onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
+              <button type="button" className={iconButtonClass} aria-label="Zoom out" title={withShortcut("Zoom out", SHORTCUTS.zoomOut)} onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 <LuMinus size={18} aria-hidden />
               </button>
               <FitViewButton
@@ -891,7 +993,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                 onFitRows={() => rowsSpan && fitTo(rowsSpan.start, rowsSpan.finish)}
                 onFitActivities={() => activitiesSpan && fitTo(activitiesSpan.start, activitiesSpan.finish)}
               />
-              <button type="button" className={iconButtonClass} aria-label="Zoom in" onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
+              <button type="button" className={iconButtonClass} aria-label="Zoom in" title={withShortcut("Zoom in", SHORTCUTS.zoomIn)} onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
                 <LuPlus size={18} aria-hidden />
               </button>
               <button
@@ -900,7 +1002,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                 onClick={scrollToDataDate}
                 disabled={dataDate === null}
                 aria-label="Go to data date"
-                title={dataDate === null ? "This project has no data date" : "Go to the data date"}
+                title={dataDate === null ? "This project has no data date" : withShortcut("Go to the data date", SHORTCUTS.dataDate)}
               >
                 <LuTarget size={18} aria-hidden />
               </button>
@@ -915,7 +1017,6 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
       <div
         ref={virtual.ref}
         tabIndex={0}
-        onKeyDown={onKeyDown}
         aria-label="Schedule"
         className="relative min-h-0 flex-1 overflow-auto bg-white focus:outline-none dark:bg-slate-950"
       >
@@ -1278,6 +1379,13 @@ interface RowProps {
   /** Which of the row's guide lines to draw bold: the one at this level, or none. */
   boldCol: number | null;
 }
+
+/** `set` without `id`, as a new set. */
+const without = (set: ReadonlySet<string>, id: string) => {
+  const next = new Set(set);
+  next.delete(id);
+  return next;
+};
 
 /**
  * The one button a group row offers: open everything inside the group if any of it is closed, otherwise close it all.

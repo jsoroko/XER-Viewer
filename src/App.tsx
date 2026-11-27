@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Overview } from "./components/Overview";
 import { Schedule } from "./components/Schedule";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { TablesView } from "./components/TablesView";
 import { TopBar, type Tab } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
+import { useWindowKeys } from "./components/useWindowKeys";
+import { SHORTCUTS, matches, modalOpen } from "./lib/shortcuts";
 import { useCompare } from "./state/useCompare";
 import { buildSchedule, listProjects } from "./lib/xer/model";
 import { useTheme } from "./state/useTheme";
@@ -63,6 +66,14 @@ function Viewer({
   const [tab, setTab] = useState<Tab>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tableRequest, setTableRequest] = useState<{ name: string; nonce: number } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  // The shortcut list opens and closes with its own key; while another dialog is open it stays shut.
+  useWindowKeys(null, (e) => {
+    if (!matches(e, SHORTCUTS.help)) return;
+    if (!helpOpen && modalOpen()) return;
+    e.preventDefault();
+    setHelpOpen((v) => !v);
+  });
 
   const schedule = useMemo(() => (projectId ? buildSchedule(xer, projectId) : null), [xer, projectId]);
   // Comparing this programme with a second file. While that is on, the schedule shows the differences.
@@ -104,7 +115,9 @@ function Viewer({
         mode={theme.mode}
         onPalette={theme.setPalette}
         onMode={theme.setMode}
+        onHelp={() => setHelpOpen(true)}
       />
+      {helpOpen && <ShortcutsDialog onClose={() => setHelpOpen(false)} />}
       <main className="min-h-0 flex-1">
         {/* All views stay mounted so scroll position and filters survive tab switches. */}
         <div className="h-full" hidden={tab !== "overview"}>

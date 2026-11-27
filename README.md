@@ -18,7 +18,7 @@ the browser and never leaves your machine, so there is no backend.
   (tested with 50,000 activities). Search (task code and task name; switch **Groups** on to also match the name or
   code of any WBS group above a task, so "WP23" finds everything inside a WP23 group; the project's top row is
   ignored), status/critical/milestone
-  filters, keyboard navigation (↑/↓), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
+  filters, keyboard navigation (see *Keyboard shortcuts* below), and a details panel with General, Relationships (click to jump), Resources and Activity Codes.
   - **Legend** – the info icon (beside the zoom buttons) opens a key to the chart, in groups: Progress (or, while comparing, the
     kinds of change and what the row markers mean), Other bars, Lines and shading, and Trace. It lists only what is on the
     chart at the moment (Today, Non-working, Predecessor and Successor appear when switched on, Traced path while a trace is
@@ -215,6 +215,25 @@ bun run build      # static site in dist/ — host it anywhere
 
 Click **Try a sample project** on the start screen to explore without a file.
 
+## Keyboard shortcuts
+
+Press `⌘/` (Mac) or `Ctrl+/` (Windows, Linux), or click the keyboard icon in the top bar, for the list. In short:
+
+| Keys | Does |
+| --- | --- |
+| `⌘F` / `Ctrl+F` | Go to the search box (instead of the browser's find, which can only see the rows on screen) |
+| `⇧⌘−` / `⇧⌘+` | Zoom the chart out / in (`⌘−`, `⌘=` and `⌘0` stay the browser's page zoom) |
+| `⇧⌘0` | Fit the whole project in the window |
+| `⇧⌘D` | Go to the data date |
+| `⌘P` | Print to PDF (replaces the browser's print while the Schedule is showing) |
+| `↑` `↓` `Home` `End` | Move through the rows (groups and activities), once a row is selected |
+| `←` / `→` | Close / open the group, or go up to the group / into it |
+| `Shift` + `←` / `→` | Close / open the group and everything inside it |
+| `Enter` / `Shift+Enter` (search box) | Select the next / previous match |
+| `Esc` | Deselect; in a search box, clear it, then go back to the rows |
+
+Print (⌘P) deliberately replaces the browser's own on the Schedule (its File menu still has it); the others add Shift so they don't replace anything. On a Mac a `+` is typed with Shift, so the key press the browser reads as "zoom in" is `⇧⌘=`, which here zooms the chart; the browser's zoom in is then `⌘=`, without Shift. The plain keys never act while the cursor is in a box or a menu, and are never combined with ⌘. All of them live in `src/lib/shortcuts.ts`.
+
 ## Versioning
 
 The version is `YY.MAJOR.MINOR` (for example `26.1.0`): the two-digit year, then a major and a minor release counter
@@ -243,6 +262,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/xer/parse.ts` | Tab-delimited XER parser (`%T` / `%F` / `%R`), encoding detection |
 | `src/lib/xer/model.ts` | Builds a typed schedule: WBS tree, activities, logic, resources, codes, stats |
 | `src/lib/xer/calendar.ts` | Parses P6 `clndr_data` work patterns; working days and hours, non-working runs, summaries |
+| `src/lib/shortcuts.ts`, `treeNav.ts`; `useWindowKeys.ts`, `useFindShortcut.ts`, `ShortcutsDialog.tsx` | The shortcut table (matching, labels, tooltips), keyboard movement through the rows, and the components that listen for keys |
 | `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale (and the fit-to-range margin logic), windowing |
 | `src/lib/advancedFilter.ts` | Filter-builder fields, operators and evaluation |
 | `src/lib/links.ts` | Orthogonal routing for the dependency lines (and the traced path's links) |

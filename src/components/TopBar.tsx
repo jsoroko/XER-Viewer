@@ -1,10 +1,12 @@
 import { useRef } from "react";
+import { LuKeyboard } from "react-icons/lu";
 import { fmtBytes } from "../lib/format";
 import type { Project } from "../lib/xer/model";
 import type { Mode, PaletteId } from "../lib/themes";
 import logo from "../favicon.svg";
 import { SettingsMenu } from "./SettingsMenu";
-import { buttonClass, inputClass } from "./ui";
+import { SHORTCUTS, withShortcut } from "../lib/shortcuts";
+import { buttonClass, iconButtonClass, inputClass } from "./ui";
 
 export type Tab = "overview" | "schedule" | "tables";
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -29,6 +31,7 @@ interface Props {
   mode: Mode;
   onPalette: (id: PaletteId) => void;
   onMode: (mode: Mode) => void;
+  onHelp: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -91,6 +94,9 @@ export function TopBar(p: Props) {
         )}
         <button type="button" className={buttonClass} onClick={p.onClose} title="Close this file and forget it in this browser">
           Close
+        </button>
+        <button type="button" className={iconButtonClass} aria-label="Keyboard shortcuts" title={withShortcut("Keyboard shortcuts", SHORTCUTS.help)} onClick={p.onHelp}>
+          <LuKeyboard size={18} aria-hidden />
         </button>
         <SettingsMenu palette={p.palette} mode={p.mode} onPalette={p.onPalette} onMode={p.onMode} />
         <input

@@ -1,10 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { downloadText, toCsv } from "../lib/csv";
 import { fmtInt } from "../lib/format";
 import { naturalCompare } from "../lib/xer/values";
 import type { XerFile, XerTable } from "../lib/xer/parse";
 import { useVirtualRows } from "../lib/useVirtualRows";
 import { buttonClass, inputClass } from "./ui";
+import { useFindShortcut } from "./useFindShortcut";
 
 const ROW_H = 26;
 const HEADER_H = 32;
@@ -52,12 +53,23 @@ function isNumericColumn(table: XerTable, c: number): boolean {
   return seen > 0;
 }
 
+/** Escape in a search box clears it; with nothing left to clear, it leaves the box. */
+function clearOnEscape(e: KeyboardEvent<HTMLInputElement>, value: string, clear: (v: string) => void) {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  if (value) clear("");
+  else e.currentTarget.blur();
+}
+
 export function TablesView({ xer, requested }: Props) {
   const names = useMemo(() => [...xer.tables.keys()].sort(), [xer]);
   const initial = xer.tables.has("TASK") ? "TASK" : (names[0] ?? "");
   const [selected, setSelected] = useState(initial);
   const [listQuery, setListQuery] = useState("");
   const [query, setQuery] = useState("");
+  const listSearchRef = useRef<HTMLInputElement>(null);
+  const rowSearchRef = useRef<HTMLInputElement>(null);
+  useFindShortcut(rowSearchRef, listSearchRef);
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null);
 
   useEffect(() => {
@@ -120,12 +132,14 @@ export function TablesView({ xer, requested }: Props) {
       <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="p-2">
           <input
+            ref={listSearchRef}
             type="search"
             aria-label="Filter tables"
             placeholder="Filter tables…"
             className={`${inputClass} w-full`}
             value={listQuery}
             onChange={(e) => setListQuery(e.target.value)}
+            onKeyDown={(e) => clearOnEscape(e, listQuery, setListQuery)}
           />
         </div>
         <ul className="min-h-0 flex-1 overflow-auto pb-2">
@@ -158,12 +172,14 @@ export function TablesView({ xer, requested }: Props) {
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
               <h2 className="font-mono text-sm font-semibold">{table.name}</h2>
               <input
+                ref={rowSearchRef}
                 type="search"
                 aria-label="Search rows"
                 placeholder="Search rows…"
                 className={`${inputClass} w-64`}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => clearOnEscape(e, query, setQuery)}
               />
               <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
                 {deferredQuery.trim()

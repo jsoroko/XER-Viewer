@@ -351,7 +351,7 @@ export function groupsBelow(node: WbsNode): WbsNode[] {
 }
 
 /** A group with nothing in it has nothing to open or close. */
-const hasContent = (n: WbsNode) => n.children.length > 0 || n.activities.length > 0;
+export const hasContent = (n: WbsNode) => n.children.length > 0 || n.activities.length > 0;
 
 /**
  * `collapsed` with the group and every group below it opened, so all its activities show. Nothing outside the group
