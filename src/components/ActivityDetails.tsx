@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { LuChevronsDownUp } from "react-icons/lu";
 import { fmtDateTime, fmtDays, fmtMoney, fmtNumber } from "../lib/format";
 import { holidayCount, summarizeWeek, workingDaysBetween } from "../lib/xer/calendar";
@@ -12,8 +12,9 @@ import {
 } from "../lib/xer/values";
 import { CHANGE_MARK, CHANGE_SOLID, CHANGE_TINT, CHANGE_WORD } from "./compareStyle";
 import { StatusBadge } from "./ui";
+import { useDetailTab, type DetailTab } from "../state/useDetailsPanel";
 import { ResizeGrip } from "./ResizeGrip";
-import { DEFAULT_PANEL_H, useHeightResize } from "./useHeightResize";
+import { useHeightResize } from "./useHeightResize";
 
 interface Props {
   schedule: Schedule;
@@ -29,7 +30,6 @@ interface Props {
   embedded?: boolean;
 }
 
-type DetailTab = "general" | "relationships" | "resources" | "codes";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -197,12 +197,10 @@ function RelationshipTable({
 }
 
 export function ActivityDetails({ schedule, activity: a, change, onSelect, onClose, embedded = false }: Props) {
-  const [tab, setTab] = useState<DetailTab>("general");
-  // Remembered across visits and across activities, like the table's own width.
-  const { height, separator } = useHeightResize();
-  // On its own (no trace open) the panel offers the same Fit as the tabbed one: just as tall as the content, until dragged again.
-  const [fitted, setFitted] = useState(false);
-  useEffect(() => setFitted(false), [height]);
+  // The open tab and the height are remembered across activities (and visits): this panel is rebuilt for each activity.
+  const [tab, setTab] = useDetailTab();
+  const panel = useRef<HTMLDivElement>(null);
+  const { height, fit, separator } = useHeightResize();
   const preds = schedule.predecessors.get(a.id) ?? [];
   const succs = schedule.successors.get(a.id) ?? [];
   const assigns = schedule.assignments.get(a.id) ?? [];
@@ -220,8 +218,9 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
 
   return (
     <div
+      ref={panel}
       className={embedded ? "flex min-h-0 flex-1 flex-col" : "relative flex shrink-0 flex-col border-t border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"}
-      style={embedded ? undefined : fitted ? { maxHeight: "70vh" } : { height }}
+      style={embedded ? undefined : { height }}
     >
       {!embedded && (
         <ResizeGrip orientation="horizontal" label="Resize activity details" {...separator} />
@@ -251,10 +250,10 @@ export function ActivityDetails({ schedule, activity: a, change, onSelect, onClo
             </button>
           ))}
         </div>
-        {!embedded && height !== DEFAULT_PANEL_H && !fitted && (
+        {!embedded && (
           <button
             type="button"
-            onClick={() => setFitted(true)}
+            onClick={() => fit(panel.current)}
             aria-label="Fit panel to content"
             title="Fit the panel's height to its content"
             className="ml-2 rounded p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-slate-800"

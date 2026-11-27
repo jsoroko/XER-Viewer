@@ -38,9 +38,10 @@ the browser and never leaves your machine, so there is no backend.
     bottom panel has tabs: **Driving trace** and, whenever an activity is selected, a second tab named after it that holds the
     activity's details (General, Relationships, Resources, Codes), so neither hides the other. Each tab has its own **×**: the trace
     tab closes the trace, the activity tab deselects the activity. Selecting a row doesn't switch tabs; the two share one panel height,
-    which you can drag and which is remembered. Once the height has been dragged, a **Fit** button appears beside the shown tab's ×
-    (and beside the ✕ of the details panel when no trace is open) and makes the panel just as tall as its content (up to most of
-    the window) until it is dragged again. A relationship *drives* when it has no relationship
+    which you can drag. A **Fit** button beside the shown tab's × (and beside the ✕ of the details panel when no trace is open)
+    sets the height to just fit that tab's content, up to most of the window. The height, however it was set, stays the same as
+    other activities are selected and is remembered between visits, and so is the details tab you are on (Relationships, say),
+    so stepping through activities keeps you where you were. A relationship *drives* when it has no relationship
     float: the successor's date is exactly what the predecessor's date plus lag asks for. That is measured in working
     time on the predecessor's calendar (P6's default calendar for lag) from the dates already in the file, so
     calendars, lags, constraints and progress are respected, and nothing is rescheduled. Tied chains are all
@@ -249,6 +250,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/version.ts`, `appVersion.ts`, `scripts/release.ts` | Version numbering, the version and build date shown on the start screen, the release command |
 | `src/lib/themes.ts`, `src/components/AppearanceSettings.tsx` | The five palettes (light + dark), turned into CSS variables at run time; the Appearance part of Settings |
 | `src/lib/levelGuides.ts`, `state/useLevelGuides.ts`, `components/SettingsMenu.tsx`, `LevelGuidesSettings.tsx` | The level guides' settings, colours and presets, and the cog panel that holds them and Appearance |
+| `src/lib/panelHeight.ts`, `state/useDetailsPanel.ts`, `components/BottomPanel.tsx`, `ResizeGrip.tsx` | The bottom panel: its tabs, its height (drag and Fit) and the detail tab, kept across activities; the resize handles |
 | `src/lib/printPdf.ts`, `printLayout.ts`, `state/usePrintLayout.ts`, `components/PrintDialog.tsx` | PDF export (jsPDF, lazy-loaded): paper sizes, wrapped names and row-height pagination, bar labels, filter summary, extra columns, shading, traced path, compared programmes; the choices and the preview dialog |
 | `src/lib/compare.ts`, `compareTrace.ts`, `compareColumns.ts`, `state/useCompare.ts` | Matching two programmes by Activity ID, classifying each as new / removed / modified, describing the change; tracing both and marking joined / dropped steps; loading the second file |
 | `src/state/fileStore.ts`, `useXerFile.ts` | IndexedDB persistence of the last file and the five most recent; load / restore / close flow |
