@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { LuChevronsDownUp, LuX } from "react-icons/lu";
 import type { Activity } from "../lib/xer/model";
 import { ResizeGrip } from "./ResizeGrip";
@@ -59,7 +59,9 @@ function Tab({ id, panelId, selected, onSelect, onClose, closeLabel, closeTitle,
 /**
  * The panel along the bottom while a driving-logic trace is showing: a tab for the trace, and, only while an activity is
  * selected, a tab for that activity's details. Selecting something does not switch tabs by itself (that would take the
- * list of steps away every time one is clicked); the tab just appears, and clicking it shows the details. Each tab closes
+ * list of steps away every time one is clicked); the tab just appears, and clicking it shows the details. Once the details
+ * are the tab being looked at they stay so as the selection moves from activity to activity, even across a moment with
+ * nothing selected. Each tab closes
  * only itself: the trace, or the selection.
  */
 export function BottomPanel({
@@ -79,10 +81,9 @@ export function BottomPanel({
   const [tab, setTab] = useState<PanelTab>("trace");
   const panel = useRef<HTMLDivElement>(null);
   const { height, fit, separator } = useHeightResize();
-  // With nothing selected there is only the trace; a later selection must not find the panel already on the other tab.
-  useEffect(() => {
-    if (!activity) setTab("trace");
-  }, [activity]);
+  // With nothing selected there is only the trace. The choice of tab is kept all the same, so that stepping over a group's
+  // row (which has no details, and so deselects the activity) or pressing Escape brings the details back on the next
+  // selection, on the tab that was open. Closing the Activity tab itself is the way to go back to the trace for good.
   const shown: PanelTab = activity && tab === "activity" ? "activity" : "trace";
   // Sets the height to what the tab being looked at needs; the height then stays as it is, whichever activity is selected.
   const fitToContent = () => fit(panel.current);
@@ -106,7 +107,10 @@ export function BottomPanel({
             panelId="panel-activity"
             selected={shown === "activity"}
             onSelect={() => setTab("activity")}
-            onClose={onDeselect}
+            onClose={() => {
+              setTab("trace");
+              onDeselect();
+            }}
             closeLabel="Deselect activity"
             closeTitle="Deselect this activity and close its details"
             onFit={shown === "activity" ? fitToContent : undefined}
