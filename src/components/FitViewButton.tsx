@@ -50,6 +50,7 @@ export function FitViewButton({ hasRange, hasRows, hasActivities, fitted, onFitP
         className={iconButtonClass}
         onClick={onFitProject}
         aria-pressed={fitted}
+        data-help="fit"
         aria-label="Fit view"
         title="Fit View: fit the whole project in the window"
       >
@@ -59,7 +60,7 @@ export function FitViewButton({ hasRange, hasRows, hasActivities, fitted, onFitP
   }
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="fit">
       <button
         type="button"
         className={iconButtonClass}

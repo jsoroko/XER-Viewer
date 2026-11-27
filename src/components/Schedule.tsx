@@ -747,7 +747,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
       <div className="border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
         {/* Row 1: what to show */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-          <div className="relative">
+          <div className="relative" data-help="search">
             <input
               ref={searchRef}
               type="search"
@@ -809,6 +809,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
             type="button"
             className={`${iconToggleClass(showBuilder || compiled.active > 0)} relative`}
             aria-expanded={showBuilder}
+            data-help="filters"
             aria-label={compiled.active > 0 ? `Filters (${compiled.active} in use)` : "Filters"}
             onClick={() => setShowBuilder((v) => !v)}
             title={compiled.active > 0 ? `Filters: ${compiled.active} in use. Filter by activity code, task or WBS` : "Filters: filter by activity code, task or WBS"}
@@ -841,6 +842,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
               setPrintOpen(true);
             }}
             disabled={pdfProgress !== null || rows.length === 0}
+            data-help="print"
             title={
               rows.length === 0
                 ? "Nothing to print: no activities match the filters"
@@ -856,7 +858,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
 
         {/* Row 2: how to show it */}
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
-          <div className="flex gap-1">
+          <div className="flex gap-1" data-help="groups">
             <button
               type="button"
               className={iconButtonClass}
@@ -922,7 +924,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
           <TraceMenu schedule={schedule} selected={detailActivity} active={trace !== null} onTrace={startTrace} />
           <CompareMenu compare={compare} />
           <span aria-hidden className="h-5 w-px bg-slate-300 dark:bg-slate-700" />
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" data-help="switches">
             <Switch
               checked={showLinks}
               onChange={setShowLinks}
@@ -980,7 +982,7 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
             />
             {/* Same 8px between these buttons as between the single buttons on the left; only a deliberate pair sits tighter. */}
             <div className="flex gap-2">
-              <button type="button" className={iconButtonClass} aria-label="Zoom out" title={withShortcut("Zoom out", SHORTCUTS.zoomOut)} onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
+              <button type="button" className={iconButtonClass} data-help="zoom-out" aria-label="Zoom out" title={withShortcut("Zoom out", SHORTCUTS.zoomOut)} onClick={() => setZoom(clampPx(pxPerDay / 1.5))}>
                 <LuMinus size={18} aria-hidden />
               </button>
               <FitViewButton
@@ -993,13 +995,14 @@ export function Schedule({ schedule, compare, selectedId, onSelect: onSelectProp
                 onFitRows={() => rowsSpan && fitTo(rowsSpan.start, rowsSpan.finish)}
                 onFitActivities={() => activitiesSpan && fitTo(activitiesSpan.start, activitiesSpan.finish)}
               />
-              <button type="button" className={iconButtonClass} aria-label="Zoom in" title={withShortcut("Zoom in", SHORTCUTS.zoomIn)} onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
+              <button type="button" className={iconButtonClass} data-help="zoom-in" aria-label="Zoom in" title={withShortcut("Zoom in", SHORTCUTS.zoomIn)} onClick={() => setZoom(clampPx(pxPerDay * 1.5))}>
                 <LuPlus size={18} aria-hidden />
               </button>
               <button
                 type="button"
                 className={iconButtonClass}
                 onClick={scrollToDataDate}
+                data-help="data-date"
                 disabled={dataDate === null}
                 aria-label="Go to data date"
                 title={dataDate === null ? "This project has no data date" : withShortcut("Go to the data date", SHORTCUTS.dataDate)}

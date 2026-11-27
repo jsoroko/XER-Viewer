@@ -1,13 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { LuX } from "react-icons/lu";
 import { SHORTCUTS, formatShortcut, isMac, type Shortcut } from "../lib/shortcuts";
-import { iconButtonClass } from "./ui";
-
-const Key = ({ children }: { children: ReactNode }) => (
-  <kbd className="whitespace-nowrap rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-    {children}
-  </kbd>
-);
+import { Kbd as Key, iconButtonClass } from "./ui";
 
 type Entry = { keys: ReactNode; what: string };
 
@@ -81,7 +75,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
             title="Anywhere"
             entries={[
               { keys: k(SHORTCUTS.find), what: "Go to the search box (instead of the browser's find)" },
-              { keys: k(SHORTCUTS.help), what: "Show or hide this list" },
+              { keys: k(SHORTCUTS.help), what: "Show or hide Help" },
             ]}
           />
           <Section

@@ -59,7 +59,7 @@ export function SettingsMenu({ palette, mode, onPalette, onMode }: Props) {
   const toggle = (id: SectionId) => setSection((s) => (s === id ? null : id));
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="settings">
       <button
         type="button"
         className={iconToggleClass(open)}

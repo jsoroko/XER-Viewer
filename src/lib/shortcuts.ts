@@ -40,7 +40,7 @@ export const SHORTCUTS = {
   fit: { label: "Fit the whole project in the window", display: "0", code: "Digit0", shift: true },
   dataDate: { label: "Go to the data date", display: "D", key: "d", shift: true },
   print: { label: "Print to PDF", display: "P", key: "p", shift: false },
-  help: { label: "Show keyboard shortcuts", display: "/", code: "Slash", shift: false },
+  help: { label: "Show or hide Help", display: "/", code: "Slash", shift: false },
 } as const satisfies Record<string, Shortcut>;
 
 /**

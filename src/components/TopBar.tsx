@@ -1,12 +1,12 @@
 import { useRef } from "react";
-import { LuKeyboard } from "react-icons/lu";
+import { LuCircleHelp, LuKeyboard } from "react-icons/lu";
 import { fmtBytes } from "../lib/format";
 import type { Project } from "../lib/xer/model";
 import type { Mode, PaletteId } from "../lib/themes";
 import logo from "../favicon.svg";
 import { SettingsMenu } from "./SettingsMenu";
 import { SHORTCUTS, withShortcut } from "../lib/shortcuts";
-import { buttonClass, iconButtonClass, inputClass } from "./ui";
+import { buttonClass, iconButtonClass, iconToggleClass, inputClass } from "./ui";
 
 export type Tab = "overview" | "schedule" | "tables";
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -31,7 +31,10 @@ interface Props {
   mode: Mode;
   onPalette: (id: PaletteId) => void;
   onMode: (mode: Mode) => void;
+  /** Help (the side panel) is showing. */
+  helpOpen: boolean;
   onHelp: () => void;
+  onShortcuts: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -48,6 +51,7 @@ export function TopBar(p: Props) {
           <button
             key={t.id}
             type="button"
+            data-help={`tab-${t.id}`}
             onClick={() => p.onTab(t.id)}
             aria-current={p.tab === t.id ? "page" : undefined}
             className={`relative px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/40 ${
@@ -79,7 +83,7 @@ export function TopBar(p: Props) {
         <span className="hidden truncate text-sm text-slate-500 sm:inline dark:text-slate-400" title={p.fileName}>
           {p.fileName} · {fmtBytes(p.fileSize)}
         </span>
-        <button type="button" className={buttonClass} onClick={() => input.current?.click()}>
+        <button type="button" data-help="open" className={buttonClass} onClick={() => input.current?.click()}>
           Open…
         </button>
         {p.storageNotice && (
@@ -95,8 +99,19 @@ export function TopBar(p: Props) {
         <button type="button" className={buttonClass} onClick={p.onClose} title="Close this file and forget it in this browser">
           Close
         </button>
-        <button type="button" className={iconButtonClass} aria-label="Keyboard shortcuts" title={withShortcut("Keyboard shortcuts", SHORTCUTS.help)} onClick={p.onHelp}>
+        <button type="button" data-help="shortcuts" className={iconButtonClass} aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={p.onShortcuts}>
           <LuKeyboard size={18} aria-hidden />
+        </button>
+        <button
+          type="button"
+          data-help="help"
+          className={iconToggleClass(p.helpOpen)}
+          aria-label="Help"
+          aria-expanded={p.helpOpen}
+          title={withShortcut("Help: how to use the viewer", SHORTCUTS.help)}
+          onClick={p.onHelp}
+        >
+          <LuCircleHelp size={18} aria-hidden />
         </button>
         <SettingsMenu palette={p.palette} mode={p.mode} onPalette={p.onPalette} onMode={p.onMode} />
         <input

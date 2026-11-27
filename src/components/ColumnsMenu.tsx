@@ -35,7 +35,7 @@ export function ColumnsMenu({ hiddenFixed, onFixedToggle, enabled, onToggle, com
   useDismiss(open, box, () => setOpen(false));
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="columns">
       <button
         type="button"
         className={customised ? iconToggleClass(true) : iconButtonClass}

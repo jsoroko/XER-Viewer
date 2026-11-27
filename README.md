@@ -215,12 +215,25 @@ bun run build      # static site in dist/ — host it anywhere
 
 Click **Try a sample project** on the start screen to explore without a file.
 
+## Help
+
+The **?** button in the top bar (or `⌘/`) opens a Help panel at the right of the page, leaving the chart in view. It opens on the tools of
+the view you are in, with a strip of their icons, a search box, and a short article for each tool: numbered steps, a tip, its shortcuts,
+and links to related articles. An article's **Show me** button steps the panel aside and rings the real control, with its name; **Back to
+Help** or Esc brings the panel back. Esc also closes Help when the focus is in it.
+
+The articles are plain data in `src/lib/helpArticles.ts` (title, summary, steps, tip, shortcuts, and the `data-help` ids of the controls to
+ring), so a new tool is one more entry plus a `data-help="…"` attribute on its button. Shortcuts in the text are written as `{key:print}`,
+which reads `SHORTCUTS`, so an article cannot show a key that has changed. The tests check that every link, icon and shortcut an article
+names exists.
+
 ## Keyboard shortcuts
 
-Press `⌘/` (Mac) or `Ctrl+/` (Windows, Linux), or click the keyboard icon in the top bar, for the list. In short:
+Click the keyboard icon in the top bar, or open Help (`⌘/` on a Mac, `Ctrl+/` elsewhere) and choose *Keyboard shortcuts*, for the list. In short:
 
 | Keys | Does |
 | --- | --- |
+| `⌘/` / `Ctrl+/` | Open or close Help |
 | `⌘F` / `Ctrl+F` | Go to the search box (instead of the browser's find, which can only see the rows on screen) |
 | `⇧⌘−` / `⇧⌘+` | Zoom the chart out / in (`⌘−`, `⌘=` and `⌘0` stay the browser's page zoom) |
 | `⇧⌘0` | Fit the whole project in the window |
@@ -262,6 +275,7 @@ app as a rootless Podman Quadlet, see [docs/deployment-raspberrypi.md](docs/depl
 | `src/lib/xer/parse.ts` | Tab-delimited XER parser (`%T` / `%F` / `%R`), encoding detection |
 | `src/lib/xer/model.ts` | Builds a typed schedule: WBS tree, activities, logic, resources, codes, stats |
 | `src/lib/xer/calendar.ts` | Parses P6 `clndr_data` work patterns; working days and hours, non-working runs, summaries |
+| `src/lib/helpArticles.ts`, `HelpDrawer.tsx` | The Help articles (data, search) and the panel that shows them, with "Show me" |
 | `src/lib/shortcuts.ts`, `treeNav.ts`; `useWindowKeys.ts`, `useFindShortcut.ts`, `ShortcutsDialog.tsx` | The shortcut table (matching, labels, tooltips), keyboard movement through the rows, and the components that listen for keys |
 | `src/lib/scheduleRows.ts`, `timeline.ts`, `useVirtualRows.ts` | Row flattening + filters, Gantt time scale (and the fit-to-range margin logic), windowing |
 | `src/lib/advancedFilter.ts` | Filter-builder fields, operators and evaluation |

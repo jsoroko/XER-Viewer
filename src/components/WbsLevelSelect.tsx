@@ -50,7 +50,7 @@ export function WbsLevelSelect({ levels, value, onChange }: Props) {
   };
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="wbs-level">
       <button
         type="button"
         className={`${iconToggleClass(custom || open)} relative`}

@@ -62,7 +62,7 @@ export function LegendMenu({ state }: { state: LegendState }) {
   useDismiss(open, box, () => setOpen(false));
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="legend">
       <button
         type="button"
         className={iconToggleClass(open)}

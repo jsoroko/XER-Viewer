@@ -129,7 +129,7 @@ export function TablesView({ xer, requested }: Props) {
 
   return (
     <div className="flex h-full min-h-0">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <aside data-help="tables-list" className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="p-2">
           <input
             ref={listSearchRef}
@@ -188,7 +188,7 @@ export function TablesView({ xer, requested }: Props) {
                 {" · "}
                 {table.fields.length} columns
               </span>
-              <button type="button" className={`${buttonClass} ml-auto`} onClick={exportCsv} disabled={indices.length === 0}>
+              <button type="button" data-help="tables-export" className={`${buttonClass} ml-auto`} onClick={exportCsv} disabled={indices.length === 0}>
                 Export CSV
               </button>
             </div>

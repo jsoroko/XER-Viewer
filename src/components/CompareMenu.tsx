@@ -178,7 +178,7 @@ export function CompareMenu({ compare }: { compare: CompareApi }) {
   const showing = active && baseline && current;
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="compare">
       <button
         type="button"
         className={`${iconToggleClass(active || open)} relative`}

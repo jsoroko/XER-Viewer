@@ -120,7 +120,7 @@ export function TraceMenu({ schedule, selected, active, onTrace }: Props) {
   };
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="trace">
       <button
         type="button"
         className={iconToggleClass(active || open)}

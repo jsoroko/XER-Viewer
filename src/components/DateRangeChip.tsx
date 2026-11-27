@@ -34,7 +34,7 @@ export function DateRangeChip({ from, to, mode, invalid, onFrom, onTo, onMode, o
   const fieldClass = `${inputClass} w-full ${invalid ? "border-red-500 focus:border-red-500 focus:ring-red-500/30" : ""}`;
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="dates">
       <button
         type="button"
         aria-haspopup="dialog"

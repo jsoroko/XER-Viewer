@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HelpDrawer } from "./components/HelpDrawer";
 import { Overview } from "./components/Overview";
 import { Schedule } from "./components/Schedule";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
@@ -67,10 +68,10 @@ function Viewer({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tableRequest, setTableRequest] = useState<{ name: string; nonce: number } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
-  // The shortcut list opens and closes with its own key; while another dialog is open it stays shut.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Help (the side panel) opens and closes with its own key; while a dialog is open it stays as it is.
   useWindowKeys(null, (e) => {
-    if (!matches(e, SHORTCUTS.help)) return;
-    if (!helpOpen && modalOpen()) return;
+    if (!matches(e, SHORTCUTS.help) || modalOpen()) return;
     e.preventDefault();
     setHelpOpen((v) => !v);
   });
@@ -115,29 +116,34 @@ function Viewer({
         mode={theme.mode}
         onPalette={theme.setPalette}
         onMode={theme.setMode}
-        onHelp={() => setHelpOpen(true)}
+        helpOpen={helpOpen}
+        onHelp={() => setHelpOpen((v) => !v)}
+        onShortcuts={() => setShortcutsOpen(true)}
       />
-      {helpOpen && <ShortcutsDialog onClose={() => setHelpOpen(false)} />}
-      <main className="min-h-0 flex-1">
-        {/* All views stay mounted so scroll position and filters survive tab switches. */}
-        <div className="h-full" hidden={tab !== "overview"}>
-          {schedule ? (
-            <Overview xer={xer} schedule={schedule} parseMs={state.parseMs} onOpenActivity={openActivity} onOpenTable={openTable} />
-          ) : (
-            <NoProject onOpenTable={openTable} />
-          )}
-        </div>
-        <div className="h-full" hidden={tab !== "schedule"}>
-          {schedule ? (
-            <Schedule schedule={shown ?? schedule} compare={compare} selectedId={selectedId} onSelect={setSelectedId} />
-          ) : (
-            <NoProject onOpenTable={openTable} />
-          )}
-        </div>
-        <div className="h-full" hidden={tab !== "tables"}>
-          <TablesView xer={xer} requested={tableRequest} />
-        </div>
-      </main>
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      <div className="flex min-h-0 flex-1">
+        <main className="min-h-0 min-w-0 flex-1">
+          {/* All views stay mounted so scroll position and filters survive tab switches. */}
+          <div className="h-full" hidden={tab !== "overview"}>
+            {schedule ? (
+              <Overview xer={xer} schedule={schedule} parseMs={state.parseMs} onOpenActivity={openActivity} onOpenTable={openTable} />
+            ) : (
+              <NoProject onOpenTable={openTable} />
+            )}
+          </div>
+          <div className="h-full" hidden={tab !== "schedule"}>
+            {schedule ? (
+              <Schedule schedule={shown ?? schedule} compare={compare} selectedId={selectedId} onSelect={setSelectedId} />
+            ) : (
+              <NoProject onOpenTable={openTable} />
+            )}
+          </div>
+          <div className="h-full" hidden={tab !== "tables"}>
+            <TablesView xer={xer} requested={tableRequest} />
+          </div>
+        </main>
+        {helpOpen && <HelpDrawer tab={tab} onTab={setTab} onClose={() => setHelpOpen(false)} onShortcuts={() => setShortcutsOpen(true)} />}
+      </div>
     </>
   );
 }

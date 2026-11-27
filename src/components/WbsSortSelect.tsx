@@ -35,7 +35,7 @@ export function WbsSortSelect({ value, onChange }: Props) {
   useDismiss(open, box, () => setOpen(false));
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" data-help="wbs-order">
       <button
         type="button"
         className={iconToggleClass(value !== "sequence" || open)}
