@@ -3,6 +3,10 @@
 Versions are `YY.MAJOR.MINOR`: the year, then a major and a minor release counter that both restart each January.
 Add an entry with `bun run release major` or `bun run release minor`.
 
+## 26.5.1 (2026-11-27)
+
+- Keep the Activity tab open in the bottom panel while a trace is showing, as the selection moves between activities
+
 ## 26.5.0 (2026-11-27)
 
 - Add keyboard shortcuts: search, chart zoom/fit/data date/print, row navigation, Esc closes windows
